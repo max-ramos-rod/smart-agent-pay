@@ -9,11 +9,10 @@ export default defineConfig(({ mode }) => ({
   server: {
     host: "0.0.0.0",
     port: 8080,
-
     allowedHosts: [
-      ".ngrok-free.app",
+      "financas.igrejabatistafe.com.br",
+      "smartagentpay.goevolux .com.br"
     ],
-
     hmr: {
       overlay: false,
     },
