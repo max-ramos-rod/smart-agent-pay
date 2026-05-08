@@ -42,7 +42,7 @@ services:
     ports:
       - "8080:80"
     depends_on:
-      - smartagent_backend
+      - backend
     networks:
       - app_network
 
