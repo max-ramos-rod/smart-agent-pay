@@ -1,0 +1,495 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { z } from "zod";
+import { toast } from "sonner";
+import {
+  Activity, Bot, ExternalLink, Power, Wallet,
+  Zap, TrendingDown, TrendingUp, Trash2,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { usePhantom } from "@/hooks/usePhantom";
+import { usePrice } from "@/hooks/usePrice";
+import { Sparkline } from "@/components/Sparkline";
+import { api } from "@/services/api";
+import { getStrategies, createStrategy } from "@/services/strategy";
+import { getExecutions } from "@/services/logs";
+import { getBalance } from "@/services/wallets";
+import { useAuth } from "@/hooks/useAuth";
+
+type Strategy = {
+  id: string;
+  drop_percent: number;
+  amount_sol: number;
+  destination_address: string;
+  reference_price: number;
+  active: boolean;
+  created_at: string;
+};
+
+type Execution = {
+  id: string;
+  strategy_id: string | null;
+  trigger_price: number;
+  reference_price: number;
+  drop_percent: number;
+  amount_sol: number;
+  tx_hash: string | null;
+  status: string;
+  explanation: string | null;
+  created_at: string;
+};
+
+const strategySchema = z.object({
+  drop_percent: z.coerce.number().min(0.1, "Min 0.1%").max(99, "Max 99%"),
+  amount_sol: z.coerce.number().min(0.0001, "Min 0.0001 SOL").max(10, "Max 10 SOL"),
+  destination_address: z.string().trim().min(32, "Endereço inválido").max(64, "Endereço inválido"),
+});
+
+const Index = () => {
+  const { address, connect, disconnect, connecting } = usePhantom();
+  const { loginWithWallet } = useAuth();
+  const { price, history, crash, pump } = usePrice();
+
+  const [strategies, setStrategies] = useState<Strategy[]>([]);
+  const [executions, setExecutions] = useState<Execution[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [balance, setBalance] = useState<number | null>(null);
+  const [isReady, setIsReady] = useState(false);
+  const [demoLoading, setDemoLoading] = useState(false);
+
+  const [dropPct, setDropPct] = useState("5");
+  const [amount, setAmount] = useState("0.001");
+  const [destination, setDestination] = useState("");
+
+  // --- CORRIGIDO: uma única função de refresh, useCallback para estabilidade ---
+  const refresh = useCallback(async () => {
+    try {
+      const [strat, exec, solBalance] = await Promise.all([
+        getStrategies(),
+        getExecutions(),
+        getBalance(),
+      ]);
+      setStrategies(strat);
+      setExecutions(exec);
+      setBalance(solBalance.balance);
+    } catch (err) {
+      // silencioso — polling não deve quebrar a UI
+    }
+  }, []);
+
+  // --- init: auto-login e primeiro load ---
+  useEffect(() => {
+    const provider = (window as any).solana;
+    if (!address || !provider) return;
+
+    const init = async () => {
+      try {
+        localStorage.setItem("wallet_address", address);
+        let token = localStorage.getItem("token");
+        if (!token) {
+          const res = await loginWithWallet(provider, address);
+          token = res.access_token;
+          localStorage.setItem("token", token);
+          localStorage.setItem("wallet_id", String(res.wallet_id));
+        }
+        await refresh();
+        setIsReady(true);
+      } catch (err) {
+        console.error("Erro init:", err);
+      }
+    };
+
+    init();
+  }, [address]);
+
+  // --- CORRIGIDO: um único intervalo de polling (não dois) ---
+  // Execuções a 3s, mas chamando refresh completo para evitar race condition
+  // entre dois setIntervals chamando setExecutions simultaneamente.
+  // 3s é tolerável para todos os dados no hackathon.
+  useEffect(() => {
+    if (!isReady) return;
+    const id = setInterval(refresh, 3000);
+    return () => clearInterval(id);
+  }, [isReady, refresh]);
+
+  const activeStrategies = useMemo(() => strategies.filter((s) => s.active), [strategies]);
+  const priceChange = history.length > 1 ? ((price - history[0]) / history[0]) * 100 : 0;
+  const priceUp = priceChange >= 0;
+  const [execMode, setExecMode] = useState<"recurring" | "once">("recurring");
+  const [cooldown, setCooldown] = useState("60");
+
+  const handleCreate = async () => {
+    if (!address) { toast.error("Conecte o Phantom primeiro"); return; }
+    const parsed = strategySchema.safeParse({ drop_percent: dropPct, amount_sol: amount, destination_address: destination });
+    if (!parsed.success) { toast.error(parsed.error.issues[0].message); return; }
+    setSubmitting(true);
+    try {
+      await createStrategy({
+        type: "buy",
+        drop_percent: parsed.data.drop_percent,
+        amount_sol: parsed.data.amount_sol,
+        destination_address: parsed.data.destination_address,
+        reference_price: price,
+        cooldown_seconds: Number(cooldown),
+        execution_mode: execMode,
+      });
+      toast.success("🤖 Agente ativado", {
+        description: `Compra ${parsed.data.amount_sol} SOL se cair ${parsed.data.drop_percent}%`,
+      });
+      setDestination("");
+      await refresh();
+    } catch (err: any) {
+      toast.error("Erro ao salvar", { description: err.response?.data?.detail?.[0]?.msg || err.message });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleToggle = async (s: Strategy) => {
+    try {
+      await api.patch(`/strategies/${s.id}`, { active: !s.active });
+      await refresh();
+    } catch {
+      toast.error("Erro ao alterar estratégia");
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await api.delete(`/strategies/${id}`);
+      await refresh();
+    } catch {
+      toast.error("Erro ao remover estratégia");
+    }
+  };
+
+  // --- Demo crash: liga simulador visual ao backend ---
+  const handleDemoCrash = async (percent = 6) => {
+    crash(percent);
+    setDemoLoading(true);
+    try {
+      const crashedPrice = price * (1 - percent / 100);
+      await api.post("/demo/set-price", { price: crashedPrice });
+      toast.info(`📉 Queda de ${percent}% simulada`, {
+        description: "Agente reage em até 5 segundos",
+      });
+      setTimeout(async () => {
+        await api.delete("/demo/set-price").catch(() => {});
+        setDemoLoading(false);
+      }, 12_000);
+    } catch {
+      setDemoLoading(false);
+    }
+  };
+
+  const handleDemoPump = async (percent = 4) => {
+    pump(percent);
+    try {
+      const pumped = price * (1 + percent / 100);
+      await api.post("/demo/set-price", { price: pumped });
+      setTimeout(() => api.delete("/demo/set-price").catch(() => {}), 8_000);
+    } catch {}
+  };
+
+  return (
+    <div className="min-h-screen relative">
+      <div className="absolute inset-0 grid-bg opacity-30 pointer-events-none" />
+
+      {/* HEADER */}
+      <header className="relative border-b border-border/50 backdrop-blur-sm">
+        <div className="container flex items-center justify-between py-5">
+          <div className="flex items-center gap-3">
+            <div className="relative h-10 w-10 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center glow-primary">
+              <Bot className="h-5 w-5 text-primary-foreground" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold tracking-tight">SMART AGENT PAY</h1>
+              <p className="text-xs text-muted-foreground font-mono">solana · devnet</p>
+            </div>
+          </div>
+          {address ? (
+            
+            <div className="flex items-center gap-2">
+              <div className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary/50 border border-border">
+                <div className="h-2 w-2 rounded-full bg-primary pulse-dot" />
+                <div className="flex flex-col">
+                  {balance !== null && (
+                    <span className="text-xs text-primary font-mono">💰 {balance} SOL</span>
+                  )}
+                </div>
+              </div>
+              <div className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary/50 border border-border">
+                <div className="h-2 w-2 rounded-full bg-primary pulse-dot" />
+                <div className="flex flex-col">
+                  <span className="font-mono text-sm">{address.slice(0, 4)}…{address.slice(-4)}</span>
+                </div>
+              </div>              
+              <Button variant="ghost" size="sm" onClick={disconnect}>Desconectar</Button>
+            </div>
+          ) : (
+            <Button onClick={connect} disabled={connecting} className="gap-2">
+              <Wallet className="h-4 w-4" />
+              {connecting ? "Conectando…" : "Conectar Phantom"}
+            </Button>
+          )}
+        </div>
+      </header>
+
+      <main className="container relative py-10 space-y-8">
+        {/* HERO PRICE */}
+        <section className="card-elevated rounded-2xl p-6 md:p-8">
+          <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
+            <div>
+              <p className="text-xs uppercase tracking-widest text-muted-foreground mb-2">SOL / USD · simulado</p>
+              <div className="flex items-baseline gap-3">
+                <span key={price} className="font-mono text-5xl md:text-6xl font-bold animate-ticker">
+                  ${price.toFixed(2)}
+                </span>
+                <span className={`font-mono text-lg flex items-center gap-1 ${priceUp ? "text-primary" : "text-destructive"}`}>
+                  {priceUp ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
+                  {priceChange.toFixed(2)}%
+                </span>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => handleDemoCrash(6)} disabled={demoLoading} className="gap-1">
+                <TrendingDown className="h-3 w-3" />
+                {demoLoading ? "Agente processando…" : "Simular queda 6%"}
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => handleDemoPump(4)} className="gap-1">
+                <TrendingUp className="h-3 w-3" /> Pump 4%
+              </Button>
+            </div>
+          </div>
+          <Sparkline data={history} />
+          <div className="flex flex-wrap gap-6 mt-4 pt-4 border-t border-border/50 text-sm">
+            <div className="flex items-center gap-2">
+              <Activity className="h-4 w-4 text-primary" />
+              <span className="text-muted-foreground">Agentes ativos:</span>
+              <span className="font-mono font-semibold">{activeStrategies.length}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Zap className="h-4 w-4 text-accent" />
+              <span className="text-muted-foreground">Execuções:</span>
+              <span className="font-mono font-semibold">{executions.length}</span>
+            </div>
+          </div>
+        </section>
+
+        <div className="grid lg:grid-cols-2 gap-6">
+          {/* CREATE STRATEGY */}
+          <section className="card-elevated rounded-2xl p-6">
+            <div className="flex items-center gap-2 mb-1">
+              <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                <Bot className="h-4 w-4 text-primary" />
+              </div>
+              <h2 className="text-lg font-semibold">Criar estratégia</h2>
+            </div>
+            <p className="text-sm text-muted-foreground mb-5">
+              Se SOL cair X%, comprar Y SOL automaticamente.
+            </p>
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label htmlFor="drop">Cair (%)</Label>
+                  <Input id="drop" type="number" step="0.1" value={dropPct}
+                    onChange={(e) => setDropPct(e.target.value)} className="font-mono" />
+                </div>
+                <div>
+                  <Label htmlFor="amount">Comprar (SOL)</Label>
+                  <Input id="amount" type="number" step="0.0001" value={amount}
+                    onChange={(e) => setAmount(e.target.value)} className="font-mono" />
+                </div>
+              </div>
+              <div>
+                <Label htmlFor="dest">Endereço destino (Devnet)</Label>
+                <Input id="dest" placeholder="Ex: 4Nd1m…" value={destination}
+                  onChange={(e) => setDestination(e.target.value)} className="font-mono text-xs" />
+              </div>
+              <div className="rounded-lg bg-secondary/40 border border-border p-3 text-sm font-mono">
+                <span className="text-muted-foreground">Preço de referência: </span>
+                <span className="font-semibold">${price.toFixed(2)}</span>
+              </div>
+              {/* toggle de modo — vai logo acima do botão de submit */}
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setExecMode("recurring")}
+                  className={`rounded-lg border p-3 text-left transition-colors ${
+                    execMode === "recurring"
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border bg-secondary/30 text-muted-foreground hover:bg-secondary/50"
+                  }`}
+                >
+                  <div className="font-medium text-sm">🔁 Recorrente</div>
+                  <div className="text-xs mt-0.5 opacity-70">
+                    Executa toda vez que a condição for atingida
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setExecMode("once")}
+                  className={`rounded-lg border p-3 text-left transition-colors ${
+                    execMode === "once"
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border bg-secondary/30 text-muted-foreground hover:bg-secondary/50"
+                  }`}
+                >
+                  <div className="font-medium text-sm">⚡ Uma vez</div>
+                  <div className="text-xs mt-0.5 opacity-70">
+                    Executa uma única vez e se desativa
+                  </div>
+                </button>
+              </div>
+              <div>
+                <Label htmlFor="cooldown">Cooldown (segundos)</Label>
+                <Input
+                  id="cooldown"
+                  type="number"
+                  min="10"
+                  step="10"
+                  value={cooldown}
+                  onChange={(e) => setCooldown(e.target.value)}
+                  className="font-mono"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Tempo mínimo entre execuções da mesma estratégia.
+                </p>
+              </div>
+              <Button
+                onClick={handleCreate}
+                disabled={submitting || !address}
+                className="w-full gap-2"
+                size="lg"
+              >
+                <Power className="h-4 w-4" />
+                {address
+                  ? submitting
+                    ? "Ativando…"
+                    : `Ativar Agente ${execMode === "once" ? "· Uma vez" : "· Recorrente"}`
+                  : "Conecte a wallet primeiro"}
+              </Button>
+            </div>
+          </section>
+
+          {/* ACTIVE STRATEGIES */}
+          <section className="card-elevated rounded-2xl p-6">
+            <div className="flex items-center gap-2 mb-5">
+              <div className="h-8 w-8 rounded-lg bg-accent/10 flex items-center justify-center">
+                <Activity className="h-4 w-4 text-accent" />
+              </div>
+              <h2 className="text-lg font-semibold">Suas estratégias</h2>
+            </div>
+            {strategies.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground text-sm">
+                Nenhuma estratégia ainda. Crie uma do lado.
+              </div>
+            ) : (
+              <ul className="space-y-3">
+                {strategies.map((s) => {
+                  const dropNow = ((s.reference_price - price) / s.reference_price) * 100;
+                  const progress = Math.min(100, Math.max(0, (dropNow / s.drop_percent) * 100));
+                  return (
+                    <li key={s.id} className="rounded-xl border border-border bg-secondary/30 p-4">
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div>
+                          <div className="font-mono text-sm">
+                            <span className="text-primary font-semibold">−{s.drop_percent}%</span>
+                            <span className="text-muted-foreground"> → comprar </span>
+                            <span className="font-semibold">{s.amount_sol} SOL</span>
+                          </div>
+                          <div className="text-xs text-muted-foreground font-mono mt-0.5">
+                            ref ${Number(s.reference_price).toFixed(2)} · {s.destination_address?.slice(0, 6)}…{s.destination_address?.slice(-4)}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => handleToggle(s)}
+                            className={`text-xs px-2 py-1 rounded-md font-medium transition-colors ${
+                              s.active ? "bg-primary/15 text-primary hover:bg-primary/25" : "bg-muted text-muted-foreground"
+                            }`}>
+                            {s.active ? "● ATIVO" : "○ pausado"}
+                          </button>
+                          <button onClick={() => handleDelete(s.id)}
+                            className="p-1.5 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                      <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                        <div className="h-full bg-gradient-to-r from-primary to-accent transition-all duration-500"
+                          style={{ width: `${progress}%` }} />
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1.5 font-mono">
+                        queda atual: {dropNow.toFixed(2)}% / {s.drop_percent}%
+                      </p>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+        </div>
+
+        {/* EXECUTION FEED */}
+        <section className="card-elevated rounded-2xl p-6">
+          <div className="flex items-center justify-between mb-5">
+            <div className="flex items-center gap-2">
+              <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                <Zap className="h-4 w-4 text-primary" />
+              </div>
+              <h2 className="text-lg font-semibold">Histórico de execuções</h2>
+            </div>
+            {isReady && (
+              <span className="text-xs text-muted-foreground font-mono animate-pulse">● ao vivo</span>
+            )}
+          </div>
+          {executions.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground text-sm">
+              Nada executado ainda. Use "Simular queda" para testar.
+            </div>
+          ) : (
+            <ul className="divide-y divide-border">
+              {executions.map((e) => (
+                <li key={e.id} className="py-4 flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className={`text-xs font-mono px-2 py-0.5 rounded ${
+                        e.status === "success" ? "bg-primary/15 text-primary" :
+                        e.status === "failed" ? "bg-destructive/15 text-destructive" :
+                        "bg-muted text-muted-foreground"
+                      }`}>
+                        {e.status.toUpperCase()}
+                      </span>
+                      <span className="font-mono text-sm font-semibold">
+                        Comprou {Number(e.amount_sol)} SOL @ ${Number(e.trigger_price).toFixed(2)}
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">{e.explanation}</p>
+                    {e.tx_hash && (
+                      <a href={`https://explorer.solana.com/tx/${e.tx_hash}?cluster=devnet`}
+                        target="_blank" rel="noreferrer"
+                        className="inline-flex items-center gap-1 mt-1.5 text-xs font-mono text-accent hover:underline">
+                        {e.tx_hash.slice(0, 16)}…{e.tx_hash.slice(-8)}
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    )}
+                  </div>
+                  <span className="text-xs text-muted-foreground font-mono">
+                    {new Date(e.created_at).toLocaleTimeString()}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <footer className="text-center text-xs text-muted-foreground font-mono pb-4">
+          Solana Devnet · sem risco financeiro · transações assinadas pela Phantom
+        </footer>
+      </main>
+    </div>
+  );
+};
+
+export default Index;

@@ -1,0 +1,52 @@
+############################
+# ENV
+############################
+.env
+.env.*
+backend/.env
+frontend/.env
+
+############################
+# Python
+############################
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+
+.venv/
+venv/
+env/
+ENV/
+
+.pytest_cache/
+.coverage
+coverage/
+
+############################
+# Node / Vue
+############################
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+npm-debug.log*
+yarn-error.log*
+
+############################
+# Docker
+############################
+pgdata/
+certbot/
+
+############################
+# IDE
+############################
+.vscode/
+.idea/
+
+############################
+# OS
+############################
+.DS_Store
+Thumbs.db
