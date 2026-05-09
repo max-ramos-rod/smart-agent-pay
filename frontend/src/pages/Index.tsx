@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { z } from "zod";
 import { toast } from "sonner";
 import {
@@ -50,7 +50,7 @@ const strategySchema = z.object({
 const Index = () => {
   const { address, connect, disconnect, connecting } = usePhantom();
   const { loginWithWallet } = useAuth();
-  const { price, history, crash, pump } = usePrice();
+  const { price, history, crash } = usePrice();
 
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [executions, setExecutions] = useState<Execution[]>([]);
@@ -58,6 +58,7 @@ const Index = () => {
   const [balance, setBalance] = useState<number | null>(null);
   const [isReady, setIsReady] = useState(false);
   const [demoLoading, setDemoLoading] = useState(false);
+  const [demoActive, setDemoActive] = useState(false);
 
   const [dropPct, setDropPct] = useState("5");
   const [amount, setAmount] = useState("0.001");
@@ -165,32 +166,30 @@ const Index = () => {
     }
   };
 
-  // --- Demo crash: liga simulador visual ao backend ---
-  const handleDemoCrash = async (percent = 6) => {
-    crash(percent);
+  // --- Demo toggle: ON = mantém preço simulado, OFF = volta ao real ---
+  const handleToggleDemoMode = async (crashPercent = 6) => {
     setDemoLoading(true);
     try {
-      const crashedPrice = price * (1 - percent / 100);
-      await api.post("/demo/set-price", { price: crashedPrice });
-      toast.info(`📉 Queda de ${percent}% simulada`, {
-        description: "Agente reage em até 5 segundos",
-      });
-      setTimeout(async () => {
-        await api.delete("/demo/set-price").catch(() => {});
-        setDemoLoading(false);
-      }, 12_000);
+      if (demoActive) {
+        // Desativa demo — volta ao preço real
+        await api.delete("/demo/set-price");
+        setDemoActive(false);
+        toast.success("✅ Demo desativado — voltando ao preço real");
+      } else {
+        // Ativa demo — congela em preço baixo
+        const crashedPrice = price * (1 - crashPercent / 100);
+        await api.post("/demo/set-price", { price: crashedPrice });
+        crash(crashPercent);
+        setDemoActive(true);
+        toast.info(`📉 Demo ativado — preço simulado por até 6%`, {
+          description: "Clique novamente para desativar",
+        });
+      }
     } catch {
+      toast.error("Erro ao alterar modo demo");
+    } finally {
       setDemoLoading(false);
     }
-  };
-
-  const handleDemoPump = async (percent = 4) => {
-    pump(percent);
-    try {
-      const pumped = price * (1 + percent / 100);
-      await api.post("/demo/set-price", { price: pumped });
-      setTimeout(() => api.delete("/demo/set-price").catch(() => {}), 8_000);
-    } catch {}
   };
 
   const relativeTime = (dateStr: string) => {
@@ -259,11 +258,11 @@ const Index = () => {
 
       <main className="container relative py-10 space-y-8">
         {/* DEMO MODE BANNER */}
-        {demoLoading && (
+        {demoActive && (
           <div className="flex items-center gap-3 rounded-xl border border-yellow-500/40 bg-yellow-500/10 px-4 py-3 text-yellow-400">
             <FlaskConical className="h-4 w-4 shrink-0 animate-pulse" />
             <div className="flex-1 text-sm font-medium">
-              MODO DEMO ATIVO — preço simulado. Agente reagindo em até 5 segundos…
+              MODO DEMO ATIVO — preço simulado em ${price.toFixed(2)} (queda 6%). Agente reagindo automaticamente…
             </div>
             <span className="font-mono text-xs opacity-60">devnet · sem risco real</span>
           </div>
@@ -285,12 +284,24 @@ const Index = () => {
               </div>
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={() => handleDemoCrash(6)} disabled={demoLoading} className="gap-1">
-                <TrendingDown className="h-3 w-3" />
-                {demoLoading ? "Agente processando…" : "Simular queda 6%"}
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => handleDemoPump(4)} className="gap-1">
-                <TrendingUp className="h-3 w-3" /> Pump 4%
+              <Button
+                variant={demoActive ? "destructive" : "outline"}
+                size="sm"
+                onClick={() => handleToggleDemoMode(6)}
+                disabled={demoLoading}
+                className="gap-1"
+              >
+                {demoActive ? (
+                  <>
+                    <TrendingUp className="h-3 w-3" />
+                    {demoLoading ? "Desativando…" : "⏹ Desativar Demo"}
+                  </>
+                ) : (
+                  <>
+                    <TrendingDown className="h-3 w-3" />
+                    {demoLoading ? "Ativando…" : "🎬 Ativar Demo"}
+                  </>
+                )}
               </Button>
             </div>
           </div>
