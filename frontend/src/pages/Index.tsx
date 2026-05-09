@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import {
   Activity, Bot, ExternalLink, Power, Wallet,
   Zap, TrendingDown, TrendingUp, Trash2,
+  CheckCircle2, XCircle, Clock, FlaskConical,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -192,6 +193,26 @@ const Index = () => {
     } catch {}
   };
 
+  const relativeTime = (dateStr: string) => {
+    const normalized = dateStr.endsWith("Z") || dateStr.includes("+") ? dateStr : dateStr + "Z";
+    const diff = Date.now() - new Date(normalized).getTime();
+    const secs = Math.floor(diff / 1000);
+    if (secs < 60) return "agora mesmo";
+    const mins = Math.floor(secs / 60);
+    if (mins < 60) return `há ${mins} min`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `há ${hrs}h`;
+    return new Date(dateStr).toLocaleDateString("pt-BR");
+  };
+
+  const humanizeExecution = (e: Execution) => {
+    if (e.status === "success")
+      return `Comprei ${e.amount_sol} SOL a $${Number(e.trigger_price).toFixed(2)} — queda de ${Number(e.drop_percent).toFixed(1)}% detectada`;
+    if (e.status === "failed")
+      return `Tentativa a $${Number(e.trigger_price).toFixed(2)} falhou`;
+    return `Processando compra de ${e.amount_sol} SOL…`;
+  };
+
   return (
     <div className="min-h-screen relative">
       <div className="absolute inset-0 grid-bg opacity-30 pointer-events-none" />
@@ -237,6 +258,17 @@ const Index = () => {
       </header>
 
       <main className="container relative py-10 space-y-8">
+        {/* DEMO MODE BANNER */}
+        {demoLoading && (
+          <div className="flex items-center gap-3 rounded-xl border border-yellow-500/40 bg-yellow-500/10 px-4 py-3 text-yellow-400">
+            <FlaskConical className="h-4 w-4 shrink-0 animate-pulse" />
+            <div className="flex-1 text-sm font-medium">
+              MODO DEMO ATIVO — preço simulado. Agente reagindo em até 5 segundos…
+            </div>
+            <span className="font-mono text-xs opacity-60">devnet · sem risco real</span>
+          </div>
+        )}
+
         {/* HERO PRICE */}
         <section className="card-elevated rounded-2xl p-6 md:p-8">
           <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
@@ -449,35 +481,40 @@ const Index = () => {
               Nada executado ainda. Use "Simular queda" para testar.
             </div>
           ) : (
-            <ul className="divide-y divide-border">
+            <ul className="space-y-3">
               {executions.map((e) => (
-                <li key={e.id} className="py-4 flex flex-wrap items-start justify-between gap-3">
+                <li key={e.id} className={`flex gap-4 rounded-xl border p-4 transition-colors ${
+                  e.status === "success" ? "border-primary/20 bg-primary/5" :
+                  e.status === "failed"  ? "border-destructive/20 bg-destructive/5" :
+                  "border-border bg-secondary/20"
+                }`}>
+                  <div className="shrink-0 mt-0.5">
+                    {e.status === "success" && <CheckCircle2 className="h-5 w-5 text-primary" />}
+                    {e.status === "failed"  && <XCircle className="h-5 w-5 text-destructive" />}
+                    {e.status === "pending" && <Clock className="h-5 w-5 text-muted-foreground animate-pulse" />}
+                  </div>
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className={`text-xs font-mono px-2 py-0.5 rounded ${
-                        e.status === "success" ? "bg-primary/15 text-primary" :
-                        e.status === "failed" ? "bg-destructive/15 text-destructive" :
-                        "bg-muted text-muted-foreground"
-                      }`}>
-                        {e.status.toUpperCase()}
-                      </span>
-                      <span className="font-mono text-sm font-semibold">
-                        Comprou {Number(e.amount_sol)} SOL @ ${Number(e.trigger_price).toFixed(2)}
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <p className="text-sm font-semibold leading-snug">
+                        🤖 Agente: {humanizeExecution(e)}
+                      </p>
+                      <span className="shrink-0 text-xs text-muted-foreground font-mono">
+                        {relativeTime(e.created_at)}
                       </span>
                     </div>
-                    <p className="text-xs text-muted-foreground">{e.explanation}</p>
+                    <p className="text-xs text-muted-foreground">
+                      ref ${Number(e.reference_price).toFixed(2)} · queda alvo {Number(e.drop_percent).toFixed(1)}%
+                      {e.explanation ? ` · ${e.explanation}` : ""}
+                    </p>
                     {e.tx_hash && (
                       <a href={`https://explorer.solana.com/tx/${e.tx_hash}?cluster=devnet`}
                         target="_blank" rel="noreferrer"
-                        className="inline-flex items-center gap-1 mt-1.5 text-xs font-mono text-accent hover:underline">
-                        {e.tx_hash.slice(0, 16)}…{e.tx_hash.slice(-8)}
+                        className="inline-flex items-center gap-1 mt-2 text-xs font-mono text-accent hover:underline">
                         <ExternalLink className="h-3 w-3" />
+                        ver no Solana Explorer
                       </a>
                     )}
                   </div>
-                  <span className="text-xs text-muted-foreground font-mono">
-                    {new Date(e.created_at).toLocaleTimeString()}
-                  </span>
                 </li>
               ))}
             </ul>

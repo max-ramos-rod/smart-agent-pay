@@ -4,7 +4,7 @@ import path from "path";
 import { nodePolyfills } from "vite-plugin-node-polyfills";
 
 // https://vitejs.dev/config/
-export default defineConfig(({ mode }) => ({
+export default defineConfig({
   server: {
     host: "0.0.0.0",
     port: 8080,
@@ -19,12 +19,11 @@ export default defineConfig(({ mode }) => ({
   plugins: [
     react(),
     nodePolyfills(),
-    mode === "development" && componentTagger()
-  ].filter(Boolean),
+  ],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
     dedupe: ["react", "react-dom", "react/jsx-runtime", "react/jsx-dev-runtime"],
   },
-}));
+});
