@@ -6,7 +6,7 @@ from app.services.strategy.repository import StrategyRepository
 from app.models.enums import ExecutionStatus
 
 from app.core.pagination import PaginationParams, PaginationMetaBuilder
-from app.schemas.excution import ExecutionCreate, ExecutionListItemResponse, ExecutionResponse
+from app.schemas.execution import ExecutionCreate, ExecutionListItemResponse, ExecutionResponse
 
 
 class ExecutionService:

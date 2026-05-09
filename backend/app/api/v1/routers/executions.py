@@ -7,7 +7,7 @@ from app.services.execution.service import ExecutionService
 from app.core.pagination import PaginationParams
 from app.core.responses import paginated_response, success_response
 from app.db.session import get_db
-from app.schemas.excution import ExecutionCreate
+from app.schemas.execution import ExecutionCreate
 from app.core.auth import get_current_user
 from app.services.wallet.service import WalletService
 from app.core.dependencies import get_current_wallet

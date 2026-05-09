@@ -23,6 +23,7 @@ export const loginWithWallet = async (provider: any, publicKey: string) => {
 
   localStorage.setItem("wallet_address", publicKey);
   localStorage.setItem("token", res.data.access_token);
+  localStorage.setItem("refresh_token", res.data.refresh_token);
   localStorage.setItem("wallet_id", String(res.data.wallet_id));
 
   return res.data;

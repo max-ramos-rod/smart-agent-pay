@@ -1,5 +1,4 @@
 import axios from "axios";
-import { loginWithWallet } from "./auth";
 
 export const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL,
@@ -67,17 +66,21 @@ api.interceptors.response.use(
     isRefreshing = true;
 
     try {
-      const provider = (window as any).solana;
-      const address = localStorage.getItem("wallet_address");
+      const refreshToken = localStorage.getItem("refresh_token");
 
-      if (!provider || !address) {
-        console.warn("Wallet não disponível para relogin");
+      if (!refreshToken) {
+        processQueue(error, null);
         return Promise.reject(error);
       }
 
-      const res = await loginWithWallet(provider, address);
+      const res = await axios.post(
+        `${import.meta.env.VITE_API_URL}/auth/refresh`,
+        { refresh_token: refreshToken }
+      );
 
-      const newToken = res.access_token;
+      const newToken = res.data.access_token;
+      localStorage.setItem("token", newToken);
+      localStorage.setItem("refresh_token", res.data.refresh_token);
 
       processQueue(null, newToken);
 
@@ -86,6 +89,8 @@ api.interceptors.response.use(
       return api(originalRequest);
     } catch (err) {
       processQueue(err, null);
+      localStorage.removeItem("token");
+      localStorage.removeItem("refresh_token");
       return Promise.reject(err);
     } finally {
       isRefreshing = false;

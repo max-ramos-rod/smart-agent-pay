@@ -98,15 +98,16 @@ All API responses use an envelope:
 
 ## Environment Variables
 
-**Backend** (`backend/.env`):
+**Backend** (`backend/.env` — copiar de `backend/.env.example`):
 ```
 DATABASE_URL=postgresql+asyncpg://user:pass@host/db
 SECRET_KEY=<jwt-signing-key>
-SOLANA_PRIVATE_KEY=[...]          # JSON array format
-OPENAI_API_KEY=<key>              # optional
+SOLANA_PRIVATE_KEY=[...]                      # JSON array format
+OPENAI_API_KEY=<key>                          # optional
 USE_AI=false
 AI_TIMEOUT_SECONDS=5
 ACCESS_TOKEN_EXPIRE_MINUTES=60
+ALLOWED_ORIGINS=["http://localhost:8080"]     # optional, default cobre localhost dev
 ```
 
 **Frontend** (`frontend/.env`):
@@ -132,3 +133,5 @@ Migration files live in `backend/alembic/versions/`.
 - **Price caching**: CoinGecko responses are cached 30 seconds inside the worker to avoid rate-limiting.
 - **Demo mode**: `POST /api/v1/demo/override-price` accepts a fake price for testing strategy triggers without real market movement.
 - **AI gating**: When `USE_AI=true`, the AI agent must approve each execution; it times out after `AI_TIMEOUT_SECONDS` and falls back to rule-based execution.
+- **Refresh token**: Auth issues a short-lived access token (60 min) + long-lived refresh token (7 days). Both are stateless JWTs differentiated by `type` claim (`"access"` / `"refresh"`). The frontend interceptor renews silently via `POST /api/v1/auth/refresh` on 401, without requiring a new Phantom wallet signature.
+- **CORS**: Allowed origins are driven by `ALLOWED_ORIGINS` env var (list of strings). Defaults to `["http://localhost:8080", "http://localhost:5173"]` for local dev.

@@ -63,8 +63,9 @@ Router → Service → Repository → DB
 
 ## 🔐 Autenticação
 
-* JWT
-* OAuth2PasswordBearer
+* Phantom wallet — challenge/signature (ed25519 via nacl)
+* JWT access token (60 min, `type: "access"`) + refresh token (7 dias, `type: "refresh"`)
+* `POST /auth/refresh` renova ambos os tokens sem nova assinatura de carteira
 
 ---
 
@@ -102,7 +103,9 @@ alembic upgrade head
 ### Auth
 
 ```
+GET  /auth/challenge
 POST /auth/login
+POST /auth/refresh
 ```
 
 ---
@@ -149,15 +152,16 @@ POST /executions
 
 ## 🔐 Segurança
 
-* JWT com expiração
-* validação de dados com Pydantic
-* nunca confiar em dados do cliente
+* JWT com expiração + refresh token de 7 dias
+* CORS restrito via `ALLOWED_ORIGINS` (env var)
+* Validação de dados com Pydantic
+* Nunca confiar em dados do cliente
 
 ---
 
 ## 🚀 Melhorias futuras
 
-* Worker assíncrono
 * Retry de execução
 * Logs estruturados
 * Monitoramento
+* Sistema de filas (Redis/Celery) para múltiplos workers

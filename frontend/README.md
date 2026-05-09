@@ -62,8 +62,9 @@ npm run dev
 
 ## 🔐 Autenticação
 
-* JWT armazenado no localStorage
-* enviado via Authorization header
+* Phantom wallet — assinatura de challenge (ed25519)
+* Access token (JWT, 60 min) + refresh token (7 dias) no localStorage
+* Interceptor Axios renova o token silenciosamente via `/auth/refresh` em caso de 401
 
 ---
 
@@ -86,17 +87,16 @@ npm run dev
 
 ## 🧠 Estado
 
-* React hooks
-* possível evolução para React Query
+* React Query (@tanstack/react-query) para server state
+* React hooks para estado local
 
 ---
 
 ## 🚀 Melhorias futuras
 
 * Dashboard com métricas
-* Gráficos de execução
-* Notificações em tempo real
-* WebSocket
+* Notificações em tempo real (WebSocket)
+* Feed de atividades do agente humanizado
 
 ---
 

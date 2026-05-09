@@ -7,12 +7,13 @@ from nacl.signing import VerifyKey
 from nacl.exceptions import BadSignatureError
 from app.services.wallet.service import WalletService
 from app.services.user.service import UserService
-from app.core.security import create_access_token
-import base58   
+from app.core.security import create_access_token, create_refresh_token
+
+import base58
 import base64
 import secrets
 
-from app.schemas.auth import WalletLoginRequest
+from app.schemas.auth import WalletLoginRequest, RefreshRequest
 from app.schemas.user import UserCreate
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -70,9 +71,17 @@ async def login(
             public_key=public_key,
         )
 
-    token = create_access_token(str(wallet.user_id))
+    user_id = str(wallet.user_id)
+    token = create_access_token(user_id)
+    refresh = create_refresh_token(user_id)
 
     return {
         "access_token": token,
+        "refresh_token": refresh,
         "wallet_id": wallet.id,
     }
+
+
+@router.post("/refresh")
+async def refresh_token(data: RefreshRequest):
+    return AuthService().refresh(data.refresh_token)

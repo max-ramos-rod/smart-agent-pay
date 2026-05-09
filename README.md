@@ -82,8 +82,9 @@ frontend/
 
 ## 🔐 Autenticação
 
-* JWT
-* OAuth2PasswordRequestForm
+* Phantom wallet — challenge/signature (ed25519)
+* JWT access token (60 min) + refresh token (7 dias)
+* Renovação silenciosa via `POST /auth/refresh` sem nova assinatura
 
 ---
 
@@ -97,9 +98,9 @@ frontend/
 
 ## 🚀 Roadmap
 
-* [ ] Execução automática (worker)
-* [ ] Integração com preço em tempo real
-* [ ] Refresh token
+* [x] Execução automática (worker)
+* [x] Integração com preço em tempo real
+* [x] Refresh token
 * [ ] RBAC (roles/permissões)
 * [ ] Sistema de filas (Redis/Celery)
 

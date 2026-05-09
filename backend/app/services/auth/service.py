@@ -2,7 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, status
 
 from app.services.user.repository import UserRepository
-from app.core.security import verify_password, create_access_token
+from app.core.security import verify_password, create_access_token, create_refresh_token, decode_token
 
 class AuthService:
     def __init__(self, user_repository: UserRepository | None = None):
@@ -28,4 +28,19 @@ class AuthService:
         return {
             "access_token": token,
             "token_type": "bearer",
+        }
+
+    def refresh(self, refresh_token: str) -> dict:
+        try:
+            payload = decode_token(refresh_token)
+        except Exception:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token inválido ou expirado")
+
+        if payload.get("type") != "refresh":
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido")
+
+        user_id = payload["sub"]
+        return {
+            "access_token": create_access_token(user_id),
+            "refresh_token": create_refresh_token(user_id),
         }
