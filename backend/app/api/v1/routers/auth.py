@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.services.auth.service import AuthService
 from app.db.session import get_db
@@ -42,13 +42,13 @@ async def login(
     stored_message = challenge_store.get(public_key)
 
     if not stored_message or stored_message != message:
-        raise Exception("Invalid challenge")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid challenge")
 
     try:
         verify_key = VerifyKey(base58.b58decode(public_key))
         verify_key.verify(message.encode(), base64.b64decode(signature))
     except BadSignatureError:
-        raise Exception("Invalid signature")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid signature")
 
     wallet_service = WalletService()
     user_service = UserService()
