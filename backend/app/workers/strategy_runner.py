@@ -136,6 +136,7 @@ async def run_strategies():
                             wallet_id=s.wallet_id,
                             external_id=execution_id,
                             tx_hash=tx_hash,
+                            trigger_price=price,
                         )
 
                         print(f"✅ TX enviada: {tx_hash}")
@@ -147,6 +148,7 @@ async def run_strategies():
                             wallet_id=s.wallet_id,
                             external_id=execution_id,
                             explanation=str(e),
+                            trigger_price=price,
                         )
 
                         print(f"❌ Erro Solana: {e}")

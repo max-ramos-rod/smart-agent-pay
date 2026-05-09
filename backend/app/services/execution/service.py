@@ -95,13 +95,14 @@ class ExecutionService:
         wallet_id: int,
         external_id: str,
         tx_hash: str,
+        trigger_price: float,
     ):
         strategy = await self.strategy_repository.get(db, strategy_id)
 
         execution = self.repository.model(
             wallet_id=wallet_id,
             strategy_id=strategy.id,
-            trigger_price=strategy.reference_price,
+            trigger_price=trigger_price,
             reference_price=strategy.reference_price,
             drop_percent=strategy.drop_percent,
             amount_sol=strategy.amount_sol,
@@ -121,13 +122,14 @@ class ExecutionService:
         wallet_id: int,
         external_id: str,
         explanation: str,
+        trigger_price: float,
     ):
         strategy = await self.strategy_repository.get(db, strategy_id)
 
         execution = self.repository.model(
             wallet_id=wallet_id,
             strategy_id=strategy.id,
-            trigger_price=strategy.reference_price,
+            trigger_price=trigger_price,
             reference_price=strategy.reference_price,
             drop_percent=strategy.drop_percent,
             amount_sol=strategy.amount_sol,
