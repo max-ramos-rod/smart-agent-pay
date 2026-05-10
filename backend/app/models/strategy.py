@@ -31,6 +31,8 @@ class Strategy(Base):
     
     cooldown_seconds: Mapped[int] = mapped_column(default=60)
     execution_mode: Mapped[str] = mapped_column(default="recurring")  # "once" | "recurring"
+    token: Mapped[str] = mapped_column(String(10), default="SOL")
+    amount_usdc: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, nullable=False

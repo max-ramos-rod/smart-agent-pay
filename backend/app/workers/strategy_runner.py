@@ -123,35 +123,45 @@ async def run_strategies():
                         continue
 
 
-                    try:
-                        tx_hash = await solana_service.transfer_sol(
-                            from_keypair=agent_keypair,
-                            to_pubkey=s.destination_address,
-                            amount_sol=s.amount_sol,
-                        )
-
-                        await execution_service.create_completed_execution(
+                    if s.token == "USDC":
+                        await execution_service.create_awaiting_signature(
                             db=db,
                             strategy_id=s.id,
                             wallet_id=s.wallet_id,
                             external_id=execution_id,
-                            tx_hash=tx_hash,
                             trigger_price=price,
                         )
+                        print(f"⏳ USDC: aguardando assinatura Phantom (strategy {s.id})")
+                    else:
+                        try:
+                            tx_hash = await solana_service.transfer_sol(
+                                from_keypair=agent_keypair,
+                                to_pubkey=s.destination_address,
+                                amount_sol=s.amount_sol,
+                            )
 
-                        print(f"✅ TX enviada: {tx_hash}")
+                            await execution_service.create_completed_execution(
+                                db=db,
+                                strategy_id=s.id,
+                                wallet_id=s.wallet_id,
+                                external_id=execution_id,
+                                tx_hash=tx_hash,
+                                trigger_price=price,
+                            )
 
-                    except Exception as e:
-                        await execution_service.create_failed_execution(
-                            db=db,
-                            strategy_id=s.id,
-                            wallet_id=s.wallet_id,
-                            external_id=execution_id,
-                            explanation=str(e),
-                            trigger_price=price,
-                        )
+                            print(f"✅ SOL TX enviada: {tx_hash}")
 
-                        print(f"❌ Erro Solana: {e}")
+                        except Exception as e:
+                            await execution_service.create_failed_execution(
+                                db=db,
+                                strategy_id=s.id,
+                                wallet_id=s.wallet_id,
+                                external_id=execution_id,
+                                explanation=str(e),
+                                trigger_price=price,
+                            )
+
+                            print(f"❌ Erro Solana: {e}")
 
                     await db.flush()
 

@@ -7,7 +7,7 @@ from app.services.execution.service import ExecutionService
 from app.core.pagination import PaginationParams
 from app.core.responses import paginated_response, success_response
 from app.db.session import get_db
-from app.schemas.execution import ExecutionCreate
+from app.schemas.execution import ExecutionCreate, ConfirmRequest
 from app.core.auth import get_current_user
 from app.services.wallet.service import WalletService
 from app.core.dependencies import get_current_wallet
@@ -34,3 +34,14 @@ async def list_executions(
         [item.model_dump(mode="json") for item in data],
         meta,
     )
+
+@router.patch("/{execution_id}/confirm")
+async def confirm_execution(
+    execution_id: int,
+    body: ConfirmRequest,
+    wallet=Depends(get_current_wallet),
+    db: AsyncSession = Depends(get_db),
+    service: ExecutionService = Depends(get_execution_service),
+):
+    result = await service.confirm(db, execution_id, body.tx_hash)
+    return success_response(result.model_dump(mode="json"))

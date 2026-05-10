@@ -35,6 +35,8 @@ type Execution = {
   reference_price: number;
   drop_percent: number;
   amount_sol: number;
+  token: string;
+  amount_usdc: number | null;
   tx_hash: string | null;
   status: string;
   explanation: string | null;
@@ -48,7 +50,7 @@ const strategySchema = z.object({
 });
 
 const Index = () => {
-  const { address, connect, disconnect, connecting } = usePhantom();
+  const { address, connect, disconnect, connecting, sendUsdc } = usePhantom();
   const { loginWithWallet } = useAuth();
   const { price, history, crash } = usePrice();
 
@@ -63,6 +65,9 @@ const Index = () => {
   const [dropPct, setDropPct] = useState("5");
   const [amount, setAmount] = useState("0.001");
   const [destination, setDestination] = useState("");
+  const [token, setToken] = useState<"SOL" | "USDC">("SOL");
+  const [signingExecution, setSigningExecution] = useState<Execution | null>(null);
+  const [signing, setSigning] = useState(false);
 
   // --- CORRIGIDO: uma única função de refresh, useCallback para estabilidade ---
   const refresh = useCallback(async () => {
@@ -75,6 +80,9 @@ const Index = () => {
       setStrategies(strat);
       setExecutions(exec);
       setBalance(solBalance.balance);
+
+      const pending = exec.filter((e: Execution) => e.status === "awaiting_signature");
+      if (pending.length > 0) setSigningExecution(pending[0]);
     } catch (err) {
       // silencioso — polling não deve quebrar a UI
     }
@@ -121,6 +129,27 @@ const Index = () => {
   const [execMode, setExecMode] = useState<"recurring" | "once">("recurring");
   const [cooldown, setCooldown] = useState("60");
 
+  const handleSignUsdc = async () => {
+    if (!signingExecution) return;
+    setSigning(true);
+    try {
+      const txHash = await sendUsdc(
+        signingExecution.strategy_id
+          ? strategies.find(s => s.id === signingExecution.strategy_id)?.destination_address ?? ""
+          : "",
+        signingExecution.amount_usdc ?? 0,
+      );
+      await api.patch(`/executions/${signingExecution.id}/confirm`, { tx_hash: txHash });
+      toast.success("✅ USDC transferido", { description: `TX: ${txHash.slice(0, 8)}…` });
+      setSigningExecution(null);
+      await refresh();
+    } catch (err: any) {
+      toast.error("Erro ao assinar", { description: err.message });
+    } finally {
+      setSigning(false);
+    }
+  };
+
   const handleCreate = async () => {
     if (!address) { toast.error("Conecte o Phantom primeiro"); return; }
     const parsed = strategySchema.safeParse({ drop_percent: dropPct, amount_sol: amount, destination_address: destination });
@@ -135,6 +164,8 @@ const Index = () => {
         reference_price: price,
         cooldown_seconds: Number(cooldown),
         execution_mode: execMode,
+        token,
+        amount_usdc: token === "USDC" ? parsed.data.amount_sol : undefined,
       });
       toast.success("🤖 Agente ativado", {
         description: `Compra ${parsed.data.amount_sol} SOL se cair ${parsed.data.drop_percent}%`,
@@ -333,6 +364,26 @@ const Index = () => {
               Se SOL cair X%, comprar Y SOL automaticamente.
             </p>
             <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => setToken("SOL")}
+                  className={`rounded-lg border p-3 text-left transition-colors ${
+                    token === "SOL"
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border bg-secondary/30 text-muted-foreground hover:bg-secondary/50"
+                  }`}>
+                  <div className="font-medium text-sm">◎ SOL</div>
+                  <div className="text-xs mt-0.5 opacity-70">Execução automática</div>
+                </button>
+                <button type="button" onClick={() => setToken("USDC")}
+                  className={`rounded-lg border p-3 text-left transition-colors ${
+                    token === "USDC"
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border bg-secondary/30 text-muted-foreground hover:bg-secondary/50"
+                  }`}>
+                  <div className="font-medium text-sm">💵 USDC</div>
+                  <div className="text-xs mt-0.5 opacity-70">Requer assinatura Phantom</div>
+                </button>
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label htmlFor="drop">Cair (%)</Label>
@@ -340,7 +391,7 @@ const Index = () => {
                     onChange={(e) => setDropPct(e.target.value)} className="font-mono" />
                 </div>
                 <div>
-                  <Label htmlFor="amount">Comprar (SOL)</Label>
+                  <Label htmlFor="amount">Comprar ({token})</Label>
                   <Input id="amount" type="number" step="0.0001" value={amount}
                     onChange={(e) => setAmount(e.target.value)} className="font-mono" />
                 </div>
@@ -536,6 +587,51 @@ const Index = () => {
           Solana Devnet · sem risco financeiro · transações assinadas pela Phantom
         </footer>
       </main>
+
+      {/* MODAL DE ASSINATURA USDC */}
+      {signingExecution && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="card-elevated rounded-2xl p-6 max-w-sm w-full mx-4 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                <Bot className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <h3 className="font-semibold">Agente quer executar</h3>
+                <p className="text-xs text-muted-foreground">Assinatura necessária via Phantom</p>
+              </div>
+            </div>
+            <div className="rounded-lg bg-secondary/40 border border-border p-4 space-y-2 font-mono text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Token</span>
+                <span className="font-semibold">💵 USDC</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Valor</span>
+                <span className="font-semibold">{signingExecution.amount_usdc} USDC</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Preço trigger</span>
+                <span className="font-semibold">${Number(signingExecution.trigger_price).toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Queda</span>
+                <span className="font-semibold text-destructive">−{Number(signingExecution.drop_percent).toFixed(1)}%</span>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="ghost" className="flex-1"
+                onClick={() => setSigningExecution(null)} disabled={signing}>
+                Ignorar
+              </Button>
+              <Button className="flex-1 gap-2" onClick={handleSignUsdc} disabled={signing}>
+                <Zap className="h-4 w-4" />
+                {signing ? "Assinando…" : "Assinar com Phantom"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

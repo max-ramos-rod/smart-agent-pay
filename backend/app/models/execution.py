@@ -24,6 +24,9 @@ class Execution(Base):
     drop_percent: Mapped[float] = mapped_column(Float, nullable=False)
     amount_sol: Mapped[float] = mapped_column(Float, nullable=False)
 
+    token: Mapped[str] = mapped_column(String(10), default="SOL")
+    amount_usdc: Mapped[float | None] = mapped_column(Float, nullable=True)
+
     tx_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[str] = mapped_column(String(20), index=True)
     explanation: Mapped[str | None] = mapped_column(String(500), nullable=True)

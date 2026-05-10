@@ -7,6 +7,13 @@ import {
   LAMPORTS_PER_SOL,
   clusterApiUrl,
 } from "@solana/web3.js";
+import {
+  getAssociatedTokenAddress,
+  createTransferCheckedInstruction,
+  createAssociatedTokenAccountInstruction,
+  TOKEN_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+} from "@solana/spl-token";
 
 type PhantomProvider = {
   isPhantom?: boolean;
@@ -91,5 +98,55 @@ export function usePhantom() {
     []
   );
 
-  return { address, connect, disconnect, connecting, installed, sendSol };
+  const sendUsdc = useCallback(
+    async (toAddress: string, amountUsdc: number): Promise<string> => {
+      const provider = window.solana;
+      if (!provider?.publicKey) throw new Error("Wallet not connected");
+
+      const USDC_MINT = new PublicKey("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU");
+      const fromPubkey = new PublicKey(provider.publicKey.toString());
+      const toPubkey = new PublicKey(toAddress);
+
+      const fromAta = await getAssociatedTokenAddress(USDC_MINT, fromPubkey);
+      const toAta = await getAssociatedTokenAddress(USDC_MINT, toPubkey);
+
+      const tx = new Transaction();
+
+      // cria ATA do destinatário se não existir
+      const toAtaInfo = await connection.getAccountInfo(toAta);
+      if (!toAtaInfo) {
+        tx.add(
+          createAssociatedTokenAccountInstruction(
+            fromPubkey,
+            toAta,
+            toPubkey,
+            USDC_MINT,
+            TOKEN_PROGRAM_ID,
+            ASSOCIATED_TOKEN_PROGRAM_ID,
+          )
+        );
+      }
+
+      tx.add(
+        createTransferCheckedInstruction(
+          fromAta,
+          USDC_MINT,
+          toAta,
+          fromPubkey,
+          BigInt(Math.round(amountUsdc * 1_000_000)), // 6 decimais
+          6,
+        )
+      );
+
+      tx.feePayer = fromPubkey;
+      const { blockhash } = await connection.getLatestBlockhash();
+      tx.recentBlockhash = blockhash;
+
+      const { signature } = await provider.signAndSendTransaction(tx);
+      return signature;
+    },
+    []
+  );
+
+  return { address, connect, disconnect, connecting, installed, sendSol, sendUsdc };
 }

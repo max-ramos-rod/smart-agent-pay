@@ -7,6 +7,8 @@ class ExecutionBase(BaseModel):
     reference_price: float
     drop_percent: float
     amount_sol: float
+    token: str = "SOL"
+    amount_usdc: float | None = None
     status: str
     tx_hash: str | None = None
     explanation: str | None = None
@@ -24,3 +26,6 @@ class ExecutionResponse(ExecutionBase):
 
 class ExecutionListItemResponse(ExecutionResponse):
     pass
+
+class ConfirmRequest(BaseModel):
+    tx_hash: str
