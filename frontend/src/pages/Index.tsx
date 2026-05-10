@@ -50,7 +50,7 @@ const strategySchema = z.object({
 });
 
 const Index = () => {
-  const { address, connect, disconnect, connecting, sendUsdc } = usePhantom();
+  const { address, connect, disconnect, connecting, sendSol, sendUsdc } = usePhantom();
   const { loginWithWallet } = useAuth();
   const { price, history, crash } = usePrice();
 
@@ -129,18 +129,20 @@ const Index = () => {
   const [execMode, setExecMode] = useState<"recurring" | "once">("recurring");
   const [cooldown, setCooldown] = useState("60");
 
-  const handleSignUsdc = async () => {
+  const handleSignPhantom = async () => {
     if (!signingExecution) return;
     setSigning(true);
     try {
-      const txHash = await sendUsdc(
-        signingExecution.strategy_id
-          ? strategies.find(s => s.id === signingExecution.strategy_id)?.destination_address ?? ""
-          : "",
-        signingExecution.amount_usdc ?? 0,
-      );
+      const destination = strategies.find(s => s.id === signingExecution.strategy_id)?.destination_address ?? "";
+      const isUsdc = signingExecution.token === "USDC";
+
+      const txHash = isUsdc
+        ? await sendUsdc(destination, signingExecution.amount_usdc ?? 0)
+        : await sendSol(destination, signingExecution.amount_sol);
+
       await api.patch(`/executions/${signingExecution.id}/confirm`, { tx_hash: txHash });
-      toast.success("✅ USDC transferido", { description: `TX: ${txHash.slice(0, 8)}…` });
+      const label = isUsdc ? `${signingExecution.amount_usdc} USDC` : `${signingExecution.amount_sol} SOL`;
+      toast.success(`✅ ${label} transferido`, { description: `TX: ${txHash.slice(0, 8)}…` });
       setSigningExecution(null);
       await refresh();
     } catch (err: any) {
@@ -608,11 +610,17 @@ const Index = () => {
             <div className="rounded-lg bg-secondary/40 border border-border p-4 space-y-2 font-mono text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Token</span>
-                <span className="font-semibold">💵 USDC</span>
+                <span className="font-semibold">
+                  {signingExecution.token === "USDC" ? "💵 USDC" : "◎ SOL"}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Valor</span>
-                <span className="font-semibold">{signingExecution.amount_usdc} USDC</span>
+                <span className="font-semibold">
+                  {signingExecution.token === "USDC"
+                    ? `${signingExecution.amount_usdc} USDC`
+                    : `${signingExecution.amount_sol} SOL`}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Preço trigger</span>
@@ -628,7 +636,7 @@ const Index = () => {
                 onClick={() => setSigningExecution(null)} disabled={signing}>
                 Ignorar
               </Button>
-              <Button className="flex-1 gap-2" onClick={handleSignUsdc} disabled={signing}>
+              <Button className="flex-1 gap-2" onClick={handleSignPhantom} disabled={signing}>
                 <Zap className="h-4 w-4" />
                 {signing ? "Assinando…" : "Assinar com Phantom"}
               </Button>

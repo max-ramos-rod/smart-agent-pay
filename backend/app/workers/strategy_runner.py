@@ -123,42 +123,14 @@ async def run_strategies():
                         continue
 
 
-                    try:
-                        if s.token == "USDC":
-                            tx_hash = await solana_service.transfer_usdc(
-                                from_keypair=agent_keypair,
-                                to_pubkey=s.destination_address,
-                                amount_usdc=s.amount_usdc or 0,
-                            )
-                        else:
-                            tx_hash = await solana_service.transfer_sol(
-                                from_keypair=agent_keypair,
-                                to_pubkey=s.destination_address,
-                                amount_sol=s.amount_sol,
-                            )
-
-                        await execution_service.create_completed_execution(
-                            db=db,
-                            strategy_id=s.id,
-                            wallet_id=s.wallet_id,
-                            external_id=execution_id,
-                            tx_hash=tx_hash,
-                            trigger_price=price,
-                        )
-
-                        print(f"✅ {s.token} TX enviada: {tx_hash}")
-
-                    except Exception as e:
-                        await execution_service.create_failed_execution(
-                            db=db,
-                            strategy_id=s.id,
-                            wallet_id=s.wallet_id,
-                            external_id=execution_id,
-                            explanation=str(e),
-                            trigger_price=price,
-                        )
-
-                        print(f"❌ Erro {s.token}: {e}")
+                    await execution_service.create_awaiting_signature(
+                        db=db,
+                        strategy_id=s.id,
+                        wallet_id=s.wallet_id,
+                        external_id=execution_id,
+                        trigger_price=price,
+                    )
+                    print(f"⏳ {s.token}: aguardando assinatura Phantom (strategy {s.id})")
 
                     await db.flush()
 
