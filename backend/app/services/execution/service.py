@@ -88,6 +88,9 @@ class ExecutionService:
     ) -> bool:
         return await self.repository.exists_by_external_id(db, external_id)
 
+    async def has_pending_signature(self, db: AsyncSession, strategy_id: int) -> bool:
+        return await self.repository.has_pending_signature(db, strategy_id)
+
     async def create_completed_execution(
         self,
         db: AsyncSession,

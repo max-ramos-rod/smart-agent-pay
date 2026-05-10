@@ -122,6 +122,11 @@ async def run_strategies():
                         print("⏭️ Idempotência: já executado nesta janela, pulando")
                         continue
 
+                    has_pending = await execution_service.has_pending_signature(db, s.id)
+                    if has_pending:
+                        print(f"⏭️ Já existe awaiting_signature para strategy {s.id}, aguardando usuário")
+                        continue
+
 
                     await execution_service.create_awaiting_signature(
                         db=db,

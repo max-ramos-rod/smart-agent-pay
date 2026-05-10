@@ -28,4 +28,12 @@ class ExecutionRepository(SQLAlchemyRepository[Execution]):
     async def exists_by_external_id(self, db, external_id: str) -> bool:
         stmt = select(self.model).where(self.model.external_id == external_id)
         result = await db.execute(stmt)
-        return result.scalar_one_or_none() is not None    
+        return result.scalar_one_or_none() is not None
+
+    async def has_pending_signature(self, db, strategy_id: int) -> bool:
+        stmt = select(self.model).where(
+            self.model.strategy_id == strategy_id,
+            self.model.status == "awaiting_signature",
+        )
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none() is not None

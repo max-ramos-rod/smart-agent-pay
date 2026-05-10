@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import { toast } from "sonner";
 import {
@@ -68,6 +68,7 @@ const Index = () => {
   const [token, setToken] = useState<"SOL" | "USDC">("SOL");
   const [signingExecution, setSigningExecution] = useState<Execution | null>(null);
   const [signing, setSigning] = useState(false);
+  const dismissedIds = useRef<Set<string>>(new Set());
 
   // --- CORRIGIDO: uma única função de refresh, useCallback para estabilidade ---
   const refresh = useCallback(async () => {
@@ -81,8 +82,10 @@ const Index = () => {
       setExecutions(exec);
       setBalance(solBalance.balance);
 
-      const pending = exec.filter((e: Execution) => e.status === "awaiting_signature");
-      if (pending.length > 0) setSigningExecution(pending[0]);
+      const pending = exec.filter(
+        (e: Execution) => e.status === "awaiting_signature" && !dismissedIds.current.has(e.id)
+      );
+      if (pending.length > 0 && !signingExecution) setSigningExecution(pending[0]);
     } catch (err) {
       // silencioso — polling não deve quebrar a UI
     }
@@ -133,8 +136,15 @@ const Index = () => {
     if (!signingExecution) return;
     setSigning(true);
     try {
-      const destination = strategies.find(s => s.id === signingExecution.strategy_id)?.destination_address ?? "";
+      const strategy = strategies.find(s => String(s.id) === String(signingExecution.strategy_id));
+      const destination = strategy?.destination_address ?? "";
       const isUsdc = signingExecution.token === "USDC";
+
+      console.log("[sign] execution:", signingExecution);
+      console.log("[sign] strategy encontrada:", strategy);
+      console.log("[sign] destination:", destination);
+      console.log("[sign] token:", isUsdc ? "USDC" : "SOL");
+      console.log("[sign] amount:", isUsdc ? signingExecution.amount_usdc : signingExecution.amount_sol);
 
       const txHash = isUsdc
         ? await sendUsdc(destination, signingExecution.amount_usdc ?? 0)
@@ -143,6 +153,7 @@ const Index = () => {
       await api.patch(`/executions/${signingExecution.id}/confirm`, { tx_hash: txHash });
       const label = isUsdc ? `${signingExecution.amount_usdc} USDC` : `${signingExecution.amount_sol} SOL`;
       toast.success(`✅ ${label} transferido`, { description: `TX: ${txHash.slice(0, 8)}…` });
+      dismissedIds.current.add(signingExecution.id);
       setSigningExecution(null);
       await refresh();
     } catch (err: any) {
@@ -633,7 +644,7 @@ const Index = () => {
             </div>
             <div className="flex gap-2">
               <Button variant="ghost" className="flex-1"
-                onClick={() => setSigningExecution(null)} disabled={signing}>
+                onClick={() => { dismissedIds.current.add(signingExecution.id); setSigningExecution(null); }} disabled={signing}>
                 Ignorar
               </Button>
               <Button className="flex-1 gap-2" onClick={handleSignPhantom} disabled={signing}>
