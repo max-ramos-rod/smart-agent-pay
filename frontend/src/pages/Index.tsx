@@ -236,11 +236,15 @@ const Index = () => {
   };
 
   const humanizeExecution = (e: Execution) => {
+    const isUsdc = e.token === "USDC";
+    const amount = isUsdc ? `${e.amount_usdc} USDC` : `${e.amount_sol} SOL`;
     if (e.status === "success")
-      return `Comprei ${e.amount_sol} SOL a $${Number(e.trigger_price).toFixed(2)} — queda de ${Number(e.drop_percent).toFixed(1)}% detectada`;
+      return `Transferi ${amount} a $${Number(e.trigger_price).toFixed(2)} — queda de ${Number(e.drop_percent).toFixed(1)}% detectada`;
     if (e.status === "failed")
-      return `Tentativa a $${Number(e.trigger_price).toFixed(2)} falhou`;
-    return `Processando compra de ${e.amount_sol} SOL…`;
+      return `Tentativa de ${amount} a $${Number(e.trigger_price).toFixed(2)} falhou`;
+    if (e.status === "awaiting_signature")
+      return `Aguardando assinatura Phantom para ${amount}`;
+    return `Processando ${amount}…`;
   };
 
   return (
