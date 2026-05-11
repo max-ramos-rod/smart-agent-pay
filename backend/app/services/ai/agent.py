@@ -39,7 +39,7 @@ class AIAgent:
                 "reason": f"Queda forte (trend={trend:.4f})"
             }
 
-        if volatility > 0.05:
+        if volatility > 0.15:
             return {
                 "execute": False,
                 "confidence": 0.4,
@@ -78,18 +78,26 @@ class AIAgent:
 
         history_str = ", ".join([f"{p:.2f}" for p in history[-10:]])
 
-        system = "Você é um agente financeiro. Responda JSON."
+        system = (
+            "Você é um agente de execução de ordens em criptomoedas. "
+            "Sua função é decidir se deve executar uma ordem de COMPRA NA QUEDA (buy the dip). "
+            "A estratégia JÁ FOI configurada pelo usuário para disparar quando o preço cair X%. "
+            "Você deve aprovar se a queda atingiu o alvo e não há sinal de queda livre contínua. "
+            "Responda apenas JSON."
+        )
 
         user = f"""
-        Preço atual: {price}
-        Histórico: [{history_str}]
-        Drop: {drop:.2f}%
-        Tendência: {trend:.4f}
+        Estratégia: comprar {strategy.amount_sol} SOL quando o preço cair {strategy.drop_percent}%.
+        Preço de referência: {strategy.reference_price:.2f}
+        Preço atual: {price:.2f}
+        Queda atual: {drop:.2f}% (alvo: {strategy.drop_percent}%)
+        Histórico recente (últimos 10 preços): [{history_str}]
+        Tendência: {trend:.4f} (positivo = recuperando, negativo = ainda caindo)
         Volatilidade: {volatility:.4f}
 
-        Decidir executar ou não.
-        JSON:
-        {{"execute": true/false, "confidence": 0-1, "reason": "..."}}
+        A queda atingiu o alvo configurado pelo usuário. Deve executar a compra?
+        Recuse apenas se houver queda livre contínua (tendência muito negativa) ou volatilidade extrema.
+        JSON: {{"execute": true/false, "confidence": 0.0-1.0, "reason": "..."}}
         """
 
         resp = await client.chat.completions.create(
