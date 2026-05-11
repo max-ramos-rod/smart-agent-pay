@@ -155,10 +155,18 @@ const Index = () => {
     try {
       let txHash: string;
 
+      const isSwapExecution = signingExecution.explanation?.startsWith("Swap") ?? false;
+
       if (signingExecution.serialized_tx) {
-        // Jupiter swap — assina VersionedTransaction
+        // Jupiter swap real (mainnet) — assina VersionedTransaction
         txHash = await signAndSendSwap(signingExecution.serialized_tx);
         toast.success("🔄 Swap executado via Jupiter", { description: `TX: ${txHash.slice(0, 8)}…` });
+      } else if (isSwapExecution) {
+        // Mock swap (devnet demo) — confirma sem assinatura Phantom real
+        txHash = `demo_swap_${Date.now()}`;
+        toast.success("🔄 Swap simulado (devnet demo)", {
+          description: signingExecution.explanation ?? "swap executado",
+        });
       } else {
         const strategy = strategies.find(s => String(s.id) === String(signingExecution.strategy_id));
         const dest = strategy?.destination_address ?? "";
@@ -820,7 +828,13 @@ const Index = () => {
               </Button>
               <Button className="flex-1 gap-2" onClick={handleSignPhantom} disabled={signing}>
                 <Zap className="h-4 w-4" />
-                {signing ? "Assinando…" : "Assinar com Phantom"}
+                {signing
+                  ? "Executando…"
+                  : signingExecution.serialized_tx
+                    ? "Assinar com Phantom"
+                    : signingExecution.explanation?.startsWith("Swap")
+                      ? "Simular Swap (devnet)"
+                      : "Assinar com Phantom"}
               </Button>
             </div>
           </div>

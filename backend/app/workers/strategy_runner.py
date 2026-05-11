@@ -134,32 +134,39 @@ async def run_strategies():
 
 
                     if s.type == "swap":
-                        try:
-                            amount_in = s.amount_sol if s.token_in == "SOL" else (s.amount_usdc or 0)
-                            quote = await jupiter_service.get_quote(
-                                token_in=s.token_in,
-                                token_out=s.token_out,
-                                amount_in=amount_in,
-                                slippage_bps=s.slippage_bps or 50,
-                            )
-                            serialized_tx = await jupiter_service.get_swap_tx(
-                                quote_response=quote,
-                                user_public_key=s.wallet.public_key,
-                            )
-                            out_label = jupiter_service.format_out_amount(quote, s.token_out)
-                            await execution_service.create_awaiting_swap(
-                                db=db,
-                                strategy_id=s.id,
-                                wallet_id=s.wallet_id,
-                                external_id=execution_id,
-                                trigger_price=price,
-                                serialized_tx=serialized_tx,
-                                out_amount_label=out_label,
-                            )
-                            print(f"🔄 Swap Jupiter criado: {amount_in} {s.token_in} → ~{out_label} (strategy {s.id})")
-                        except Exception as e:
-                            print(f"❌ Erro Jupiter (strategy {s.id}): {e}")
-                            continue
+                        amount_in = s.amount_sol if s.token_in == "SOL" else (s.amount_usdc or 0)
+                        quote = await jupiter_service.get_quote_safe(
+                            token_in=s.token_in,
+                            token_out=s.token_out,
+                            amount_in=amount_in,
+                            slippage_bps=s.slippage_bps or 50,
+                        )
+                        is_mock = quote is None or quote.get("_mock")
+                        if is_mock:
+                            quote = jupiter_service.mock_quote(s.token_in, s.token_out, amount_in)
+
+                        serialized_tx = None
+                        if not is_mock:
+                            try:
+                                serialized_tx = await jupiter_service.get_swap_tx(
+                                    quote_response=quote,
+                                    user_public_key=s.wallet.public_key,
+                                )
+                            except Exception as e:
+                                print(f"⚠️ Jupiter swap TX falhou, usando mock: {e}")
+
+                        out_label = jupiter_service.format_out_amount(quote, s.token_out)
+                        suffix = " [DEMO]" if (is_mock or serialized_tx is None) else ""
+                        await execution_service.create_awaiting_swap(
+                            db=db,
+                            strategy_id=s.id,
+                            wallet_id=s.wallet_id,
+                            external_id=execution_id,
+                            trigger_price=price,
+                            serialized_tx=serialized_tx,
+                            out_amount_label=out_label + suffix,
+                        )
+                        print(f"🔄 Swap{suffix}: {amount_in} {s.token_in} → ~{out_label} (strategy {s.id})")
                     else:
                         await execution_service.create_awaiting_signature(
                             db=db,

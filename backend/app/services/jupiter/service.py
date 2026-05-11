@@ -69,6 +69,30 @@ class JupiterService:
 
         return data["swapTransaction"]
 
+    async def get_quote_safe(
+        self,
+        token_in: str,
+        token_out: str,
+        amount_in: float,
+        slippage_bps: int = 50,
+    ) -> dict | None:
+        """Tenta obter quote real; retorna None se falhar (devnet/offline)."""
+        try:
+            return await self.get_quote(token_in, token_out, amount_in, slippage_bps)
+        except Exception as e:
+            print(f"⚠️ Jupiter quote falhou (mock mode): {e}")
+            return None
+
+    def mock_quote(self, token_in: str, token_out: str, amount_in: float) -> dict:
+        """Quote simulado para demo no devnet."""
+        if token_in == "SOL" and token_out == "USDC":
+            out_raw = int(amount_in * 150 * (10 ** USDC_DECIMALS))  # ~$150/SOL fictício
+        elif token_in == "USDC" and token_out == "SOL":
+            out_raw = int((amount_in / 150) * LAMPORTS_PER_SOL)
+        else:
+            out_raw = 0
+        return {"outAmount": str(out_raw), "_mock": True}
+
     def format_out_amount(self, quote: dict, token_out: str) -> str:
         raw = int(quote.get("outAmount", 0))
         if token_out == "SOL":
