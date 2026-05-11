@@ -5,3 +5,4 @@ class ExecutionStatus(str, Enum):
     AWAITING_SIGNATURE = "awaiting_signature"
     SUCCESS = "success"
     FAILED = "failed"
+    EXPIRED = "expired"

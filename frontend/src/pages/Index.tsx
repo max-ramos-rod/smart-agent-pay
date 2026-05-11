@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import {
   Activity, Bot, ExternalLink, Power, Wallet,
   Zap, TrendingDown, TrendingUp, Trash2,
-  CheckCircle2, XCircle, Clock, FlaskConical,
+  CheckCircle2, XCircle, Clock, FlaskConical, Timer,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -268,6 +268,8 @@ const Index = () => {
       return `Tentativa de ${amount} a $${Number(e.trigger_price).toFixed(2)} falhou`;
     if (e.status === "awaiting_signature")
       return `Aguardando assinatura Phantom para ${amount}`;
+    if (e.status === "expired")
+      return `Expirado — sem assinatura em 3 min (${amount})`;
     return `Processando ${amount}…`;
   };
 
@@ -574,14 +576,17 @@ const Index = () => {
             <ul className="space-y-3">
               {executions.map((e) => (
                 <li key={e.id} className={`flex gap-4 rounded-xl border p-4 transition-colors ${
-                  e.status === "success" ? "border-primary/20 bg-primary/5" :
-                  e.status === "failed"  ? "border-destructive/20 bg-destructive/5" :
+                  e.status === "success"           ? "border-primary/20 bg-primary/5" :
+                  e.status === "failed"            ? "border-destructive/20 bg-destructive/5" :
+                  e.status === "expired"           ? "border-yellow-500/20 bg-yellow-500/5" :
                   "border-border bg-secondary/20"
                 }`}>
                   <div className="shrink-0 mt-0.5">
-                    {e.status === "success" && <CheckCircle2 className="h-5 w-5 text-primary" />}
-                    {e.status === "failed"  && <XCircle className="h-5 w-5 text-destructive" />}
-                    {e.status === "pending" && <Clock className="h-5 w-5 text-muted-foreground animate-pulse" />}
+                    {e.status === "success"           && <CheckCircle2 className="h-5 w-5 text-primary" />}
+                    {e.status === "failed"            && <XCircle className="h-5 w-5 text-destructive" />}
+                    {e.status === "expired"           && <Timer className="h-5 w-5 text-yellow-500" />}
+                    {e.status === "pending"           && <Clock className="h-5 w-5 text-muted-foreground animate-pulse" />}
+                    {e.status === "awaiting_signature" && <Clock className="h-5 w-5 text-accent animate-pulse" />}
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-2 mb-1">

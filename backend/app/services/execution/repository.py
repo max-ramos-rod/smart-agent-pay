@@ -48,8 +48,8 @@ class ExecutionRepository(SQLAlchemyRepository[Execution]):
                 self.model.created_at < cutoff,
             )
             .values(
-                status="failed",
-                explanation="Expirado: sem assinatura em 3 minutos",
+                status="expired",
+                explanation="Sem assinatura em 3 minutos",
             )
         )
         result = await db.execute(stmt)
