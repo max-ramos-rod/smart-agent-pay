@@ -1,3 +1,4 @@
+import asyncio
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException
@@ -57,21 +58,36 @@ class WalletService:
         return wallet
 
     async def get_balance(self, public_key: str):
-        print(f"DEBUG get_balance public_key: '{public_key}' len={len(public_key)}")
+        async with httpx.AsyncClient(timeout=5) as client:
+            r = await client.post(
+                "https://api.devnet.solana.com",
+                json={"jsonrpc": "2.0", "id": 1, "method": "getBalance", "params": [public_key]}
+            )
+            lamports = r.json()["result"]["value"]
+            return {"balance": round(lamports / 1_000_000_000, 4)}
+
+    async def get_usdc_balance(self, public_key: str) -> float:
+        USDC_MINT = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
         async with httpx.AsyncClient(timeout=5) as client:
             r = await client.post(
                 "https://api.devnet.solana.com",
                 json={
-                    "jsonrpc": "2.0",
-                    "id": 1,
-                    "method": "getBalance",
-                    "params": [public_key]
+                    "jsonrpc": "2.0", "id": 1,
+                    "method": "getTokenAccountsByOwner",
+                    "params": [public_key, {"mint": USDC_MINT}, {"encoding": "jsonParsed"}],
                 }
             )
-            data = r.json()
-            print(f"🔍 Balance response: {data}")
-            lamports = data["result"]["value"]
-            return {"balance": round(lamports / 1_000_000_000, 4)}  # converte para SOL    
+            accounts = r.json().get("result", {}).get("value", [])
+            if not accounts:
+                return 0.0
+            return float(accounts[0]["account"]["data"]["parsed"]["info"]["tokenAmount"]["uiAmount"] or 0)
+
+    async def get_all_balances(self, public_key: str) -> dict:
+        sol, usdc = await asyncio.gather(
+            self.get_balance(public_key),
+            self.get_usdc_balance(public_key),
+        )
+        return {"sol": sol["balance"], "usdc": usdc}
     
     async def get_user_wallet_by_address(
         self,

@@ -14,11 +14,17 @@ def get_wallet_service():
 
 @router.get("/balance")
 async def get_balance(
-    db: AsyncSession = Depends(get_db),
     wallet = Depends(get_current_wallet),
     service: WalletService = Depends(get_wallet_service),
 ):
     return await service.get_balance(wallet.public_key)
+
+@router.get("/balances")
+async def get_balances(
+    wallet = Depends(get_current_wallet),
+    service: WalletService = Depends(get_wallet_service),
+):
+    return await service.get_all_balances(wallet.public_key)
 
 @router.post("/connect")
 async def connect_wallet(

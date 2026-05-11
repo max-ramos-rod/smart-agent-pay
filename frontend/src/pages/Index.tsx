@@ -15,7 +15,7 @@ import { Sparkline } from "@/components/Sparkline";
 import { api } from "@/services/api";
 import { getStrategies, createStrategy } from "@/services/strategy";
 import { getExecutions } from "@/services/logs";
-import { getBalance } from "@/services/wallets";
+import { getBalances } from "@/services/wallets";
 import { useAuth } from "@/hooks/useAuth";
 
 type Strategy = {
@@ -57,7 +57,8 @@ const Index = () => {
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [executions, setExecutions] = useState<Execution[]>([]);
   const [submitting, setSubmitting] = useState(false);
-  const [balance, setBalance] = useState<number | null>(null);
+  const [balances, setBalances] = useState<{ sol: number; usdc: number } | null>(null);
+  const [balanceOpen, setBalanceOpen] = useState(false);
   const [isReady, setIsReady] = useState(false);
   const [demoLoading, setDemoLoading] = useState(false);
   const [demoActive, setDemoActive] = useState(false);
@@ -73,14 +74,14 @@ const Index = () => {
   // --- CORRIGIDO: uma única função de refresh, useCallback para estabilidade ---
   const refresh = useCallback(async () => {
     try {
-      const [strat, exec, solBalance] = await Promise.all([
+      const [strat, exec, allBalances] = await Promise.all([
         getStrategies(),
         getExecutions(),
-        getBalance(),
+        getBalances(),
       ]);
       setStrategies(strat);
       setExecutions(exec);
-      setBalance(solBalance.balance);
+      setBalances(allBalances);
 
       const pending = exec.filter(
         (e: Execution) => e.status === "awaiting_signature" && !dismissedIds.current.has(e.id)
@@ -292,20 +293,42 @@ const Index = () => {
           {address ? (
             
             <div className="flex items-center gap-2">
-              <div className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary/50 border border-border">
-                <div className="h-2 w-2 rounded-full bg-primary pulse-dot" />
-                <div className="flex flex-col">
-                  {balance !== null && (
-                    <span className="text-xs text-primary font-mono">💰 {balance} SOL</span>
-                  )}
-                </div>
+              {/* BOTÃO DE SALDO COM POPOVER */}
+              <div className="relative">
+                <button
+                  onMouseEnter={() => setBalanceOpen(true)}
+                  onMouseLeave={(e) => {
+                    const related = e.relatedTarget as HTMLElement;
+                    if (!related?.closest?.("[data-balance-popover]")) setBalanceOpen(false);
+                  }}
+                  onClick={() => setBalanceOpen(v => !v)}
+                  className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary/50 border border-border hover:bg-secondary/80 transition-colors"
+                >
+                  <div className="h-2 w-2 rounded-full bg-primary pulse-dot" />
+                  <span className="font-mono text-sm">Saldo ▾</span>
+                </button>
+                {balanceOpen && balances && (
+                  <div
+                    data-balance-popover
+                    onMouseEnter={() => setBalanceOpen(true)}
+                    onMouseLeave={() => setBalanceOpen(false)}
+                    className="absolute right-0 top-full mt-1 z-50 min-w-[160px] rounded-xl border border-border bg-background/95 backdrop-blur-sm shadow-lg p-3 space-y-2"
+                  >
+                    <div className="flex items-center justify-between gap-6 font-mono text-sm">
+                      <span className="text-muted-foreground">◎ SOL</span>
+                      <span className="font-semibold">{balances.sol}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-6 font-mono text-sm">
+                      <span className="text-muted-foreground">💵 USDC</span>
+                      <span className="font-semibold">{balances.usdc.toFixed(2)}</span>
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary/50 border border-border">
                 <div className="h-2 w-2 rounded-full bg-primary pulse-dot" />
-                <div className="flex flex-col">
-                  <span className="font-mono text-sm">{address.slice(0, 4)}…{address.slice(-4)}</span>
-                </div>
-              </div>              
+                <span className="font-mono text-sm">{address.slice(0, 4)}…{address.slice(-4)}</span>
+              </div>
               <Button variant="ghost" size="sm" onClick={disconnect}>Desconectar</Button>
             </div>
           ) : (
