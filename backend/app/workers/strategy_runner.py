@@ -76,6 +76,9 @@ async def run_strategies():
     while True:
         async with AsyncSessionLocal() as db:
             try:
+                expired = await execution_service.expire_pending_signatures(db)
+                if expired:
+                    print(f"⏰ {expired} execução(ões) expirada(s) por timeout de 3min")
 
                 strategies = await strategy_service.list_active(db)
                 price = await get_price()

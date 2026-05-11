@@ -86,6 +86,17 @@ const Index = () => {
         (e: Execution) => e.status === "awaiting_signature" && !dismissedIds.current.has(e.id)
       );
       if (pending.length > 0 && !signingExecution) setSigningExecution(pending[0]);
+
+      // fecha modal se a execução atual expirou no backend
+      if (signingExecution) {
+        const stillPending = exec.find(
+          (e: Execution) => e.id === signingExecution.id && e.status === "awaiting_signature"
+        );
+        if (!stillPending) {
+          setSigningExecution(null);
+          toast.info("⏰ Solicitação expirada — condições podem ter mudado");
+        }
+      }
     } catch (err) {
       // silencioso — polling não deve quebrar a UI
     }

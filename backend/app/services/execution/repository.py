@@ -1,6 +1,7 @@
 # app/services/execution/repository.py
 
-from sqlalchemy import select
+from datetime import datetime, timezone, timedelta
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.execution import Execution
@@ -37,3 +38,19 @@ class ExecutionRepository(SQLAlchemyRepository[Execution]):
         )
         result = await db.execute(stmt)
         return result.scalar_one_or_none() is not None
+
+    async def expire_old_pending_signatures(self, db, max_age_seconds: int = 180) -> int:
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=max_age_seconds)
+        stmt = (
+            update(self.model)
+            .where(
+                self.model.status == "awaiting_signature",
+                self.model.created_at < cutoff,
+            )
+            .values(
+                status="failed",
+                explanation="Expirado: sem assinatura em 3 minutos",
+            )
+        )
+        result = await db.execute(stmt)
+        return result.rowcount
