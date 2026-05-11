@@ -4,6 +4,7 @@ import {
   PublicKey,
   SystemProgram,
   Transaction,
+  VersionedTransaction,
   LAMPORTS_PER_SOL,
   clusterApiUrl,
 } from "@solana/web3.js";
@@ -21,7 +22,7 @@ type PhantomProvider = {
   isConnected: boolean;
   connect: (opts?: { onlyIfTrusted?: boolean }) => Promise<{ publicKey: { toString(): string } }>;
   disconnect: () => Promise<void>;
-  signAndSendTransaction: (tx: Transaction) => Promise<{ signature: string }>;
+  signAndSendTransaction: (tx: Transaction | VersionedTransaction) => Promise<{ signature: string }>;
   on: (event: string, cb: (...args: unknown[]) => void) => void;
 };
 
@@ -148,5 +149,19 @@ export function usePhantom() {
     []
   );
 
-  return { address, connect, disconnect, connecting, installed, sendSol, sendUsdc };
+  const signAndSendSwap = useCallback(
+    async (serializedTxBase64: string): Promise<string> => {
+      const provider = window.solana;
+      if (!provider?.publicKey) throw new Error("Wallet not connected");
+
+      const txBytes = Uint8Array.from(atob(serializedTxBase64), (c) => c.charCodeAt(0));
+      const tx = VersionedTransaction.deserialize(txBytes);
+
+      const { signature } = await provider.signAndSendTransaction(tx);
+      return signature;
+    },
+    []
+  );
+
+  return { address, connect, disconnect, connecting, installed, sendSol, sendUsdc, signAndSendSwap };
 }

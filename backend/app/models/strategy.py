@@ -34,6 +34,11 @@ class Strategy(Base):
     token: Mapped[str] = mapped_column(String(10), default="SOL")
     amount_usdc: Mapped[float | None] = mapped_column(Float, nullable=True)
 
+    # swap via Jupiter
+    token_in: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    token_out: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    slippage_bps: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, nullable=False
     )

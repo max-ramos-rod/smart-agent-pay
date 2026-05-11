@@ -45,9 +45,13 @@ class StrategyService:
             amount_sol=data.amount_sol,
             destination_address=data.destination_address,
             reference_price=data.reference_price,
-
             cooldown_seconds=data.cooldown_seconds,
             execution_mode=data.execution_mode,
+            token=data.token,
+            amount_usdc=data.amount_usdc,
+            token_in=data.token_in,
+            token_out=data.token_out,
+            slippage_bps=data.slippage_bps,
         )        
 
         await self.repository.create(db, strategy)

@@ -4,7 +4,7 @@
 
 from datetime import datetime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy import Float, String, DateTime, ForeignKey
+from sqlalchemy import Float, String, DateTime, ForeignKey, Text
 from app.db.base import Base
 
 class Execution(Base):
@@ -26,6 +26,8 @@ class Execution(Base):
 
     token: Mapped[str] = mapped_column(String(10), default="SOL")
     amount_usdc: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    serialized_tx: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     tx_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[str] = mapped_column(String(20), index=True)

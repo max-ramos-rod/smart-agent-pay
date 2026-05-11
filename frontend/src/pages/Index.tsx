@@ -40,6 +40,7 @@ type Execution = {
   tx_hash: string | null;
   status: string;
   explanation: string | null;
+  serialized_tx: string | null;
   created_at: string;
 };
 
@@ -50,7 +51,7 @@ const strategySchema = z.object({
 });
 
 const Index = () => {
-  const { address, connect, disconnect, connecting, sendSol, sendUsdc } = usePhantom();
+  const { address, connect, disconnect, connecting, sendSol, sendUsdc, signAndSendSwap } = usePhantom();
   const { loginWithWallet } = useAuth();
   const { price, history, crash } = usePrice();
 
@@ -67,6 +68,10 @@ const Index = () => {
   const [amount, setAmount] = useState("0.001");
   const [destination, setDestination] = useState("");
   const [token, setToken] = useState<"SOL" | "USDC">("SOL");
+  const [strategyMode, setStrategyMode] = useState<"transfer" | "swap">("transfer");
+  const [tokenIn, setTokenIn] = useState<"SOL" | "USDC">("SOL");
+  const [tokenOut, setTokenOut] = useState<"SOL" | "USDC">("USDC");
+  const [slippageBps, setSlippageBps] = useState("50");
   const [signingExecution, setSigningExecution] = useState<Execution | null>(null);
   const [signing, setSigning] = useState(false);
   const dismissedIds = useRef<Set<string>>(new Set());
@@ -148,23 +153,24 @@ const Index = () => {
     if (!signingExecution) return;
     setSigning(true);
     try {
-      const strategy = strategies.find(s => String(s.id) === String(signingExecution.strategy_id));
-      const destination = strategy?.destination_address ?? "";
-      const isUsdc = signingExecution.token === "USDC";
+      let txHash: string;
 
-      console.log("[sign] execution:", signingExecution);
-      console.log("[sign] strategy encontrada:", strategy);
-      console.log("[sign] destination:", destination);
-      console.log("[sign] token:", isUsdc ? "USDC" : "SOL");
-      console.log("[sign] amount:", isUsdc ? signingExecution.amount_usdc : signingExecution.amount_sol);
-
-      const txHash = isUsdc
-        ? await sendUsdc(destination, signingExecution.amount_usdc ?? 0)
-        : await sendSol(destination, signingExecution.amount_sol);
+      if (signingExecution.serialized_tx) {
+        // Jupiter swap — assina VersionedTransaction
+        txHash = await signAndSendSwap(signingExecution.serialized_tx);
+        toast.success("🔄 Swap executado via Jupiter", { description: `TX: ${txHash.slice(0, 8)}…` });
+      } else {
+        const strategy = strategies.find(s => String(s.id) === String(signingExecution.strategy_id));
+        const dest = strategy?.destination_address ?? "";
+        const isUsdc = signingExecution.token === "USDC";
+        txHash = isUsdc
+          ? await sendUsdc(dest, signingExecution.amount_usdc ?? 0)
+          : await sendSol(dest, signingExecution.amount_sol);
+        const label = isUsdc ? `${signingExecution.amount_usdc} USDC` : `${signingExecution.amount_sol} SOL`;
+        toast.success(`✅ ${label} transferido`, { description: `TX: ${txHash.slice(0, 8)}…` });
+      }
 
       await api.patch(`/executions/${signingExecution.id}/confirm`, { tx_hash: txHash });
-      const label = isUsdc ? `${signingExecution.amount_usdc} USDC` : `${signingExecution.amount_sol} SOL`;
-      toast.success(`✅ ${label} transferido`, { description: `TX: ${txHash.slice(0, 8)}…` });
       dismissedIds.current.add(signingExecution.id);
       setSigningExecution(null);
       await refresh();
@@ -177,6 +183,41 @@ const Index = () => {
 
   const handleCreate = async () => {
     if (!address) { toast.error("Conecte o Phantom primeiro"); return; }
+
+    if (strategyMode === "swap") {
+      if (tokenIn === tokenOut) { toast.error("Token de entrada e saída devem ser diferentes"); return; }
+      const dropVal = Number(dropPct);
+      const amtVal = Number(amount);
+      if (isNaN(dropVal) || dropVal <= 0) { toast.error("Queda % inválida"); return; }
+      if (isNaN(amtVal) || amtVal <= 0) { toast.error("Quantidade inválida"); return; }
+      setSubmitting(true);
+      try {
+        await createStrategy({
+          type: "swap",
+          drop_percent: dropVal,
+          amount_sol: tokenIn === "SOL" ? amtVal : 0,
+          amount_usdc: tokenIn === "USDC" ? amtVal : undefined,
+          destination_address: address, // swap retorna para a própria wallet
+          reference_price: price,
+          cooldown_seconds: Number(cooldown),
+          execution_mode: execMode,
+          token: tokenIn,
+          token_in: tokenIn,
+          token_out: tokenOut,
+          slippage_bps: Number(slippageBps),
+        });
+        toast.success("🔄 Agente de swap ativado", {
+          description: `Swap ${amtVal} ${tokenIn} → ${tokenOut} se SOL cair ${dropVal}%`,
+        });
+        await refresh();
+      } catch (err: any) {
+        toast.error("Erro ao salvar", { description: err.response?.data?.detail?.[0]?.msg || err.message });
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
+
     const parsed = strategySchema.safeParse({ drop_percent: dropPct, amount_sol: amount, destination_address: destination });
     if (!parsed.success) { toast.error(parsed.error.issues[0].message); return; }
     setSubmitting(true);
@@ -261,8 +302,18 @@ const Index = () => {
   };
 
   const humanizeExecution = (e: Execution) => {
+    const isSwap = !!e.serialized_tx || (e.explanation?.startsWith("Swap") ?? false);
     const isUsdc = e.token === "USDC";
     const amount = isUsdc ? `${e.amount_usdc} USDC` : `${e.amount_sol} SOL`;
+    const swapLabel = e.explanation ?? "swap";
+
+    if (isSwap) {
+      if (e.status === "success") return `Jupiter swap executado a $${Number(e.trigger_price).toFixed(2)} — ${swapLabel}`;
+      if (e.status === "awaiting_signature") return `Aguardando assinatura Phantom — ${swapLabel}`;
+      if (e.status === "expired") return `Swap expirado — sem assinatura em 3 min (${swapLabel})`;
+      if (e.status === "failed") return `Swap falhou a $${Number(e.trigger_price).toFixed(2)}`;
+    }
+
     if (e.status === "success")
       return `Transferi ${amount} a $${Number(e.trigger_price).toFixed(2)} — queda de ${Number(e.drop_percent).toFixed(1)}% detectada`;
     if (e.status === "failed")
@@ -417,26 +468,85 @@ const Index = () => {
               Se SOL cair X%, comprar Y SOL automaticamente.
             </p>
             <div className="space-y-4">
+              {/* MODO: Transfer ou Swap */}
               <div className="grid grid-cols-2 gap-2">
-                <button type="button" onClick={() => setToken("SOL")}
+                <button type="button" onClick={() => setStrategyMode("transfer")}
                   className={`rounded-lg border p-3 text-left transition-colors ${
-                    token === "SOL"
+                    strategyMode === "transfer"
                       ? "border-primary bg-primary/10 text-primary"
                       : "border-border bg-secondary/30 text-muted-foreground hover:bg-secondary/50"
                   }`}>
-                  <div className="font-medium text-sm">◎ SOL</div>
-                  <div className="text-xs mt-0.5 opacity-70">Execução automática</div>
+                  <div className="font-medium text-sm">💸 Transfer</div>
+                  <div className="text-xs mt-0.5 opacity-70">SOL ou USDC para endereço</div>
                 </button>
-                <button type="button" onClick={() => setToken("USDC")}
+                <button type="button" onClick={() => setStrategyMode("swap")}
                   className={`rounded-lg border p-3 text-left transition-colors ${
-                    token === "USDC"
+                    strategyMode === "swap"
                       ? "border-primary bg-primary/10 text-primary"
                       : "border-border bg-secondary/30 text-muted-foreground hover:bg-secondary/50"
                   }`}>
-                  <div className="font-medium text-sm">💵 USDC</div>
-                  <div className="text-xs mt-0.5 opacity-70">Requer assinatura Phantom</div>
+                  <div className="font-medium text-sm">🔄 Swap Jupiter</div>
+                  <div className="text-xs mt-0.5 opacity-70">Troca tokens via DEX</div>
                 </button>
               </div>
+
+              {strategyMode === "transfer" && (
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => setToken("SOL")}
+                    className={`rounded-lg border p-3 text-left transition-colors ${
+                      token === "SOL"
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border bg-secondary/30 text-muted-foreground hover:bg-secondary/50"
+                    }`}>
+                    <div className="font-medium text-sm">◎ SOL</div>
+                    <div className="text-xs mt-0.5 opacity-70">Execução automática</div>
+                  </button>
+                  <button type="button" onClick={() => setToken("USDC")}
+                    className={`rounded-lg border p-3 text-left transition-colors ${
+                      token === "USDC"
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border bg-secondary/30 text-muted-foreground hover:bg-secondary/50"
+                    }`}>
+                    <div className="font-medium text-sm">💵 USDC</div>
+                    <div className="text-xs mt-0.5 opacity-70">Requer assinatura Phantom</div>
+                  </button>
+                </div>
+              )}
+
+              {strategyMode === "swap" && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Label>De (token_in)</Label>
+                      <div className="grid grid-cols-2 gap-1 mt-1">
+                        {(["SOL", "USDC"] as const).map((t) => (
+                          <button key={t} type="button" onClick={() => setTokenIn(t)}
+                            className={`rounded-md border p-2 text-xs font-medium transition-colors ${
+                              tokenIn === t ? "border-primary bg-primary/10 text-primary" : "border-border bg-secondary/30 text-muted-foreground"
+                            }`}>{t}</button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <Label>Para (token_out)</Label>
+                      <div className="grid grid-cols-2 gap-1 mt-1">
+                        {(["SOL", "USDC"] as const).map((t) => (
+                          <button key={t} type="button" onClick={() => setTokenOut(t)}
+                            className={`rounded-md border p-2 text-xs font-medium transition-colors ${
+                              tokenOut === t ? "border-primary bg-primary/10 text-primary" : "border-border bg-secondary/30 text-muted-foreground"
+                            }`}>{t}</button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <div>
+                    <Label htmlFor="slippage">Slippage (bps) — 50 = 0.5%</Label>
+                    <Input id="slippage" type="number" min="1" max="1000" value={slippageBps}
+                      onChange={(e) => setSlippageBps(e.target.value)} className="font-mono" />
+                  </div>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label htmlFor="drop">Cair (%)</Label>
@@ -444,16 +554,21 @@ const Index = () => {
                     onChange={(e) => setDropPct(e.target.value)} className="font-mono" />
                 </div>
                 <div>
-                  <Label htmlFor="amount">Comprar ({token})</Label>
+                  <Label htmlFor="amount">
+                    {strategyMode === "swap" ? `Quantidade (${tokenIn})` : `Comprar (${token})`}
+                  </Label>
                   <Input id="amount" type="number" step="0.0001" value={amount}
                     onChange={(e) => setAmount(e.target.value)} className="font-mono" />
                 </div>
               </div>
-              <div>
-                <Label htmlFor="dest">Endereço destino (Devnet)</Label>
-                <Input id="dest" placeholder="Ex: 4Nd1m…" value={destination}
-                  onChange={(e) => setDestination(e.target.value)} className="font-mono text-xs" />
-              </div>
+
+              {strategyMode === "transfer" && (
+                <div>
+                  <Label htmlFor="dest">Endereço destino (Devnet)</Label>
+                  <Input id="dest" placeholder="Ex: 4Nd1m…" value={destination}
+                    onChange={(e) => setDestination(e.target.value)} className="font-mono text-xs" />
+                </div>
+              )}
               <div className="rounded-lg bg-secondary/40 border border-border p-3 text-sm font-mono">
                 <span className="text-muted-foreground">Preço de referência: </span>
                 <span className="font-semibold">${price.toFixed(2)}</span>
@@ -644,34 +759,51 @@ const Index = () => {
         </footer>
       </main>
 
-      {/* MODAL DE ASSINATURA USDC */}
+      {/* MODAL DE ASSINATURA */}
       {signingExecution && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
           <div className="card-elevated rounded-2xl p-6 max-w-sm w-full mx-4 space-y-4">
             <div className="flex items-center gap-3">
               <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center">
-                <Bot className="h-5 w-5 text-primary" />
+                {signingExecution.serialized_tx ? <span className="text-lg">🔄</span> : <Bot className="h-5 w-5 text-primary" />}
               </div>
               <div>
-                <h3 className="font-semibold">Agente quer executar</h3>
+                <h3 className="font-semibold">
+                  {signingExecution.serialized_tx ? "Agente quer fazer swap" : "Agente quer executar"}
+                </h3>
                 <p className="text-xs text-muted-foreground">Assinatura necessária via Phantom</p>
               </div>
             </div>
             <div className="rounded-lg bg-secondary/40 border border-border p-4 space-y-2 font-mono text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Token</span>
-                <span className="font-semibold">
-                  {signingExecution.token === "USDC" ? "💵 USDC" : "◎ SOL"}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Valor</span>
-                <span className="font-semibold">
-                  {signingExecution.token === "USDC"
-                    ? `${signingExecution.amount_usdc} USDC`
-                    : `${signingExecution.amount_sol} SOL`}
-                </span>
-              </div>
+              {signingExecution.serialized_tx ? (
+                <>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Operação</span>
+                    <span className="font-semibold text-primary">Jupiter Swap</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Detalhe</span>
+                    <span className="font-semibold text-xs">{signingExecution.explanation}</span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Token</span>
+                    <span className="font-semibold">
+                      {signingExecution.token === "USDC" ? "💵 USDC" : "◎ SOL"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Valor</span>
+                    <span className="font-semibold">
+                      {signingExecution.token === "USDC"
+                        ? `${signingExecution.amount_usdc} USDC`
+                        : `${signingExecution.amount_sol} SOL`}
+                    </span>
+                  </div>
+                </>
+              )}
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Preço trigger</span>
                 <span className="font-semibold">${Number(signingExecution.trigger_price).toFixed(2)}</span>

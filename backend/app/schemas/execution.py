@@ -19,6 +19,7 @@ class ExecutionCreate(BaseModel):
 class ExecutionResponse(ExecutionBase):
     id: int
     external_id: str | None = None
+    serialized_tx: str | None = None
     created_at: datetime
 
     class Config:

@@ -16,8 +16,11 @@ export const createStrategy = async (payload: {
   reference_price: number;
   cooldown_seconds?: number;
   execution_mode?: "once" | "recurring";
-  token?: "SOL" | "USDC";
+  token?: string;
   amount_usdc?: number;
+  token_in?: string;
+  token_out?: string;
+  slippage_bps?: number;
 }) => {
   const { data } = await api.post("/strategies", payload);
   return data.data;
