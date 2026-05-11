@@ -40,7 +40,7 @@ class ExecutionRepository(SQLAlchemyRepository[Execution]):
         return result.scalar_one_or_none() is not None
 
     async def expire_old_pending_signatures(self, db, max_age_seconds: int = 180) -> int:
-        cutoff = datetime.now(timezone.utc) - timedelta(seconds=max_age_seconds)
+        cutoff = datetime.utcnow() - timedelta(seconds=max_age_seconds)
         stmt = (
             update(self.model)
             .where(
