@@ -219,23 +219,37 @@ backend/.env.db     — POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB
 frontend/.env       — VITE_API_URL=http://localhost:8001/api/v1
 ```
 
-### Backend
+### Option A — Docker (recommended, no local installs needed)
 
 ```bash
+docker network create app_network   # only once
+docker-compose up --build
+```
+
+PostgreSQL, backend, and frontend all run in containers. No Python venv or npm install required.
+
+### Option B — Native (faster hot reload during development)
+
+Requires Python 3.11+ and Node 18+ installed on the host.
+
+```bash
+# backend
 cd backend
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 alembic upgrade head
 uvicorn app.main:app --reload --port 8001
-```
 
-### Frontend
-
-```bash
+# frontend (separate terminal)
 cd frontend
 npm install
 npm run dev
+```
+
+When running natively, still use Docker for the database:
+```bash
+docker-compose up db
 ```
 
 ### Docker (full stack in WSL)
