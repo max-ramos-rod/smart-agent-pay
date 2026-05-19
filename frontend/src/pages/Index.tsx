@@ -342,7 +342,7 @@ const Index = () => {
       <header className="relative border-b border-border/50 backdrop-blur-sm">
         <div className="container flex items-center justify-between py-5">
           <div className="flex items-center gap-3">
-            <img src={logo} alt="SentinelFi" className="h-20 w-auto" />
+            <img src={logo} alt="SentinelFi" className="h-[120px] w-auto" />
             <p className="text-xs text-muted-foreground font-mono">solana · devnet</p>
           </div>
           {address ? (
