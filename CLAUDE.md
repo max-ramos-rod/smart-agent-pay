@@ -200,6 +200,57 @@ Located at `app/services/ai/agent.py`. Evaluation pipeline:
 
 The prompt explains the "buy the dip" intent explicitly and instructs the model to **approve** unless there is continuous freefall or extreme volatility.
 
+## WSL / Linux Setup
+
+The Anchor/Solana smart contract work runs in WSL. The main SentinelFi app can also run there.
+
+### First-time clone in WSL
+
+```bash
+git clone https://github.com/max-ramos-rod/smart-agent-pay.git sentinelfi
+cd sentinelfi
+```
+
+### Recreate .env files (not in git — copy from Windows or recreate manually)
+
+```
+backend/.env        — DATABASE_URL, SECRET_KEY, SOLANA_PRIVATE_KEY, OPENAI_API_KEY, USE_AI
+backend/.env.db     — POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB
+frontend/.env       — VITE_API_URL=http://localhost:8001/api/v1
+```
+
+### Backend
+
+```bash
+cd backend
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+alembic upgrade head
+uvicorn app.main:app --reload --port 8001
+```
+
+### Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+### Docker (full stack in WSL)
+
+```bash
+docker network create app_network   # only once
+docker-compose up --build
+```
+
+### Solana / Anchor environment (already set up in WSL)
+
+The Solana CLI and Anchor toolchain are already installed in WSL from a separate project. Reuse that environment for any smart contract work on top of SentinelFi.
+
+---
+
 ## Key Design Decisions
 
 - **Single-worker constraint**: `strategy_runner` is designed for one Uvicorn worker. Scaling to multiple workers requires a Redis-backed lock/queue.
