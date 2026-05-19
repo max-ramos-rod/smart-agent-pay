@@ -1,4 +1,4 @@
-# Smart Agent Pay 🚀
+# SentinelFi 🚀
 
 Sistema de automação de estratégias financeiras com execução baseada em condições de mercado.
 

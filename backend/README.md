@@ -1,4 +1,4 @@
-# Backend - Smart Agent Pay ⚙️
+# Backend - SentinelFi ⚙️
 
 API responsável por regras de negócio, persistência e execução das estratégias.
 

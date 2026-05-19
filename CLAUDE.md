@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Smart Agent Pay is an automated trading strategy execution platform for Solana. Users connect a Phantom wallet, define price-drop strategies, and a background worker monitors CoinGecko prices every 5 seconds to execute on-chain transfers automatically. An optional AI layer (OpenAI) can make execution decisions.
+SentinelFi is an automated trading strategy execution platform for Solana. Users connect a Phantom wallet, define price-drop strategies, and a background worker monitors CoinGecko prices every 5 seconds to execute on-chain transfers automatically. An optional AI layer (OpenAI) can make execution decisions.
 
 ## Development Commands
 

@@ -1,4 +1,4 @@
-# Frontend - Smart Agent Pay 🎨
+# Frontend - SentinelFi 🎨
 
 Interface do usuário para criação e monitoramento de estratégias.
 

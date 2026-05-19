@@ -10,7 +10,7 @@ export default defineConfig({
     port: 8080,
     allowedHosts: [
       "financas.igrejabatistafe.com.br",
-      "smartagentpay.goevolux .com.br"
+      "sentinelfi.goevolux.com.br"
     ],
     hmr: {
       overlay: false,

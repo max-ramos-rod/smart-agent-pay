@@ -2,12 +2,12 @@ services:
 
   db:
     image: postgres:17-alpine
-    container_name: smartagent_db
+    container_name: sentinelfi_db
     restart: always
     env_file:
       - ./backend/.env.db
     volumes:
-      - smartagent_pgdata:/var/lib/postgresql/data
+      - sentinelfi_pgdata:/var/lib/postgresql/data
     healthcheck:
       test: [
         "CMD-SHELL",
@@ -23,7 +23,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: smartagent_backend
+    container_name: sentinelfi_backend
     env_file:
       - ./backend/.env
     depends_on:
@@ -39,7 +39,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: smartagent_frontend
+    container_name: sentinelfi_frontend
     expose:
       - "80"
     ports:
@@ -50,7 +50,7 @@ services:
       - app_network
 
 volumes:
-  smartagent_pgdata:
+  sentinelfi_pgdata:
 
 networks:
   app_network:
