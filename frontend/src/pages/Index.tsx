@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import logo from "@/assets/logo.png";
 import { z } from "zod";
 import { toast } from "sonner";
 import {
@@ -341,13 +342,8 @@ const Index = () => {
       <header className="relative border-b border-border/50 backdrop-blur-sm">
         <div className="container flex items-center justify-between py-5">
           <div className="flex items-center gap-3">
-            <div className="relative h-10 w-10 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center glow-primary">
-              <Bot className="h-5 w-5 text-primary-foreground" />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold tracking-tight">SMART AGENT PAY</h1>
-              <p className="text-xs text-muted-foreground font-mono">solana · devnet</p>
-            </div>
+            <img src={logo} alt="SentinelFi" className="h-8 w-auto" />
+            <p className="text-xs text-muted-foreground font-mono">solana · devnet</p>
           </div>
           {address ? (
             
