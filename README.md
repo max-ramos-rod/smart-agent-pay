@@ -1,111 +1,165 @@
-# SentinelFi 🚀
+# SentinelFi
 
-Sistema de automação de estratégias financeiras com execução baseada em condições de mercado.
+Automated trading strategy execution platform for Solana. Users connect a Phantom wallet, define price-drop strategies, and an AI agent monitors the market and executes trades autonomously via Session Keys — no manual signing required after the initial authorization.
 
-## 🧠 Visão Geral
-
-O sistema permite que usuários:
-
-* Criem estratégias automatizadas
-* Monitorem preços de ativos (ex: SOL)
-* Executem ações automaticamente (compra)
-* Registrem execuções (logs/auditoria)
+Built for the **Solana Frontier Hackathon 2026**.
 
 ---
 
-## 🧱 Arquitetura
+## Vision
 
-```text
-Frontend (React)
-        ↓
-Backend API (FastAPI)
-        ↓
-Banco de Dados (PostgreSQL)
+SentinelFi is an **Agentic Wallet** — the user defines intentions ("if SOL drops 5%, buy $50 USDC worth"), authorizes the agent once via a Session Key, and the AI executes autonomously within those limits. The user stays in control: spending limits and expiry are enforced on-chain; revocation is one click.
+
+---
+
+## Architecture
+
+```
+Frontend (React/Vite, port 8080)
+  └─ Phantom Wallet → Session Key creation + strategy management
+Backend (FastAPI, port 8001)
+  ├─ Strategy Worker — polls CoinGecko every 5s, evaluates AI, executes
+  ├─ Sessions Service — stores encrypted ephemeral keys per user
+  └─ AI Agent (OpenAI, optional) — gates execution decisions
+PostgreSQL 17
+Solana
+  └─ Anchor Program — SessionToken accounts (Phase 2)
 ```
 
 ---
 
-## 🔑 Conceitos principais
+## Session Keys Architecture
+
+The core differentiator. Each user generates an ephemeral keypair in the browser and signs once via Phantom to create an on-chain `SessionToken`:
+
+```
+SessionToken {
+  owner:          user's Phantom wallet
+  delegate:       ephemeral_pubkey       ← generated in browser
+  spending_limit: e.g. 50 USDC
+  expiry:         e.g. 7 days from now
+}
+```
+
+The backend stores the encrypted ephemeral private key per user. When a strategy triggers, the worker signs autonomously using that key — no Phantom interaction needed. The user can revoke at any time.
+
+There is **no shared server keypair**. Each session is user-specific, scoped, and expiring.
+
+---
+
+## Core Concepts
 
 ### Strategy
-
-Define a regra de execução:
-
-* percentual de queda
-* valor a investir
-* preço de referência
-
----
+Defines the execution rule:
+- Price drop threshold (%)
+- Amount to invest
+- Token pair (SOL/USDC)
+- Cooldown period
+- Execution mode (once / recurring)
 
 ### Execution
+Record of each triggered action:
+- Status: `awaiting_signature` → `completed` / `expired` / `skipped`
+- tx_hash (on-chain confirmation)
+- AI explanation
+- Full audit trail
 
-Registro de cada execução da estratégia:
-
-* status (pending, confirmed, failed)
-* tx_hash
-* explicação
-* auditoria completa
-
----
-
-### Wallet
-
-Representa a identidade do usuário na blockchain e executa transações.
+### Session
+User-delegated authority for the AI agent:
+- On-chain `SessionToken` (Anchor program)
+- Spending limit enforced on-chain
+- Auto-expires; user can revoke
 
 ---
 
-## 📁 Estrutura
-
-```
-backend/
-frontend/
-```
-
----
-
-## 🚀 Tecnologias
+## Stack
 
 ### Backend
-
-* FastAPI
-* SQLAlchemy 2
-* PostgreSQL
-* Pydantic v2
+- FastAPI + SQLAlchemy 2 + PostgreSQL
+- Pydantic v2
+- solders + solana-py
+- httpx (CoinGecko, Jupiter API v6)
+- OpenAI SDK (optional)
 
 ### Frontend
+- React 18 + TypeScript
+- Vite (SWC) + Tailwind CSS + shadcn/ui
+- React Query + Axios
+- @solana/web3.js + @solana/spl-token
 
-* React + TypeScript
-* Axios
-* React Query
-
----
-
-## 🔐 Autenticação
-
-* Phantom wallet — challenge/signature (ed25519)
-* JWT access token (60 min) + refresh token (7 dias)
-* Renovação silenciosa via `POST /auth/refresh` sem nova assinatura
+### Blockchain
+- Solana (devnet → mainnet)
+- Anchor/Rust (Session Keys program — Phase 2)
+- Jupiter API v6 (swaps)
 
 ---
 
-## ⚠️ Observações
+## Auth
 
-* Backend é a fonte de verdade
-* Frontend não acessa banco diretamente
-* Todas as respostas seguem padrão envelope `{ data, meta }`
-
----
-
-## 🚀 Roadmap
-
-* [x] Execução automática (worker)
-* [x] Integração com preço em tempo real
-* [x] Refresh token
-* [ ] RBAC (roles/permissões)
-* [ ] Sistema de filas (Redis/Celery)
+- Phantom wallet signs a challenge (ed25519) → backend issues JWT
+- Access token (60 min) + refresh token (7 days)
+- Silent renewal via `POST /api/v1/auth/refresh` on 401
 
 ---
 
-## 👨‍💻 Autor
+## Roadmap
 
-PETECO HACKTHON
+### Phase 2 — Anchor + Session Keys (current sprint)
+- [ ] `anchor init sentinelfi` — Anchor program in WSL
+- [ ] `SessionToken` account: `owner`, `delegate`, `spending_limit`, `expiry`
+- [ ] `create_session` instruction — user signs once
+- [ ] `execute_swap` instruction — agent executes within limit
+- [ ] `revoke_session` instruction — user revokes at any time
+- [ ] Devnet end-to-end test
+- [ ] Backend: store encrypted ephemeral keys per user, use in worker
+- [ ] Frontend: "Authorize Agent" button + session status UI
+
+### Phase 3 — Jupiter Mainnet
+- [ ] Mainnet RPC + VersionedTransaction validation
+- [ ] Remove `[DEMO]` suffix via env var
+- [ ] Add token pairs: BONK, JTO, PYTH, WIF
+
+### Phase 3.5 — x402 (Autonomous Agent Payments)
+
+The [x402 protocol](https://x402.org) standardizes HTTP `402 Payment Required` for machine-to-machine USDC payments. The agent pays autonomously using the session's ephemeral key — no human intervention.
+
+- [ ] Agent pays for premium price data (Pyth) per query via x402
+- [ ] AI inference cost debited from user session via x402 (not server's OpenAI bill)
+- [ ] Monetize SentinelFi API — external agents pay per strategy execution
+- [ ] Replace CoinGecko with Pyth Network feeds
+
+> Requires Phase 2 (Session Keys) + Phase 3 (mainnet). The `spending_limit` of a session covers both swaps and x402 data costs — user authorizes a total budget and the agent allocates it.
+
+### Phase 4 — Multi-user at Scale
+- [ ] Worker validates on-chain session before each execution
+- [ ] Session expiry management and renewal UX
+- [ ] Redis-backed locking for multi-worker Uvicorn
+
+### Phase 5 — Product & Intelligence
+- [ ] Pix on-ramp — user deposits BRL via Pix, receives USDC on-chain (via gateway: Stripe/MoonPay/Transak)
+- [ ] Persistent price history — table `price_history` in DB; worker persists every tick; replaces in-memory deque (currently maxlen=20, lost on restart)
+- [ ] Trading indicators — RSI, MA20/MA50, volume in `metrics.py`; strategy `drop_percent` becomes entry trigger, AI decides based on indicators
+- [ ] P&L dashboard per strategy
+- [ ] Email / webhook notifications on execution
+- [ ] Stop-loss, take-profit, DCA strategy types
+
+---
+
+## Running locally
+
+```bash
+# Backend
+cd backend && pip install -r requirements.txt
+alembic upgrade head
+uvicorn app.main:app --reload --port 8001
+
+# Frontend
+cd frontend && npm install
+npm run dev
+
+# Docker
+docker network create app_network
+docker-compose up --build
+```
+
+See `backend/CLAUDE.md` and `frontend/CLAUDE.md` for detailed development guides.

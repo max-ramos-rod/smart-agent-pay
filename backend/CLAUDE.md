@@ -1,13 +1,13 @@
 # CLAUDE.md — Backend
 
-FastAPI backend for SentinelFi. Handles authentication, strategy management, execution logging, and the background worker that monitors Solana prices and triggers on-chain actions.
+FastAPI backend for SentinelFi. Handles authentication, strategy management, execution logging, and the background worker that monitors Solana prices and creates pending executions.
 
 ## Stack
 
 - **FastAPI** (async) + **SQLAlchemy 2** (async) + **PostgreSQL 17**
 - **Alembic** for migrations
 - **Pydantic v2** schemas
-- **solders** + **solana-py** for Solana interactions
+- **solders** + **solana-py** for Solana transaction construction
 - **httpx** for async HTTP (CoinGecko, Jupiter API)
 - **openai** SDK (optional, gpt-4o-mini)
 
@@ -15,7 +15,7 @@ FastAPI backend for SentinelFi. Handles authentication, strategy management, exe
 
 ```bash
 python -m venv .venv
-.venv\Scripts\activate       # Windows
+source .venv/bin/activate      # Linux/macOS
 pip install -r requirements.txt
 alembic upgrade head
 uvicorn app.main:app --reload --port 8001
@@ -46,8 +46,9 @@ All responses use the envelope: `{ "data": {...}, "meta": {...} }`
 | `app/services/jupiter/service.py` | Jupiter API v6 — quote, swap TX, mock fallback |
 | `app/services/ai/agent.py` | AI evaluation pipeline: base filter → local heuristics → OpenAI → fallback |
 | `app/services/ai/metrics.py` | `calculate_trend()`, `calculate_volatility()` for price history |
-| `app/services/solana/service.py` | SOL / USDC transfer signing with agent keypair |
+| `app/services/solana/service.py` | SOL / USDC transfer construction (accepts ephemeral keypair from user session) |
 | `app/services/execution/service.py` | `create_awaiting_signature()`, `create_awaiting_swap()`, expiry logic |
+| `app/api/v1/routers/sessions.py` | Session key management — POST/GET/DELETE (Phase 2, implemented) |
 | `app/api/v1/routers/demo.py` | `POST /demo/override-price` — inject fake price for testing |
 | `scripts/gera_token.py` | Generate JWT for manual API testing |
 | `scripts/reset_executions.py` | Wipe execution records in DB |
@@ -56,8 +57,8 @@ All responses use the envelope: `{ "data": {...}, "meta": {...} }`
 
 The `strategy.type` field drives worker bifurcation:
 
-- `transfer` — worker builds `awaiting_signature` execution; user signs SOL/USDC transfer via Phantom
-- `swap` — worker gets Jupiter quote + swap TX; builds `awaiting_swap` execution; user signs `VersionedTransaction` via Phantom
+- `transfer` — worker builds `awaiting_signature` execution; user signs SOL/USDC transfer via Phantom (or agent signs autonomously if session active)
+- `swap` — worker gets Jupiter quote + swap TX; builds `awaiting_swap` execution; user signs `VersionedTransaction` via Phantom (or agent signs if session active)
 
 ## Execution Statuses
 
@@ -68,6 +69,27 @@ The `strategy.type` field drives worker bifurcation:
 | `completed` | TX confirmed on-chain |
 | `expired` | pending >3 min, auto-expired by worker |
 | `skipped` | AI/heuristic rejected execution |
+
+## Session Keys (Phase 2)
+
+Each user generates an ephemeral keypair client-side. They sign once via Phantom creating an on-chain `SessionToken(owner, delegate, spending_limit, expiry)`. The backend stores the encrypted ephemeral private key per user. When a strategy triggers and an active session exists, the worker signs autonomously using that user's ephemeral key — no Phantom interaction needed.
+
+**There is no shared server keypair.** Each session key is scoped to a single user, has a spending limit, and expires automatically.
+
+### Sessions model (`app/models/session.py`)
+
+```python
+user_id: int                 # FK to users, unique (one session per user)
+delegate_pubkey: str         # ephemeral pubkey (on-chain delegate)
+encrypted_private_key: str   # AES-encrypted ephemeral private key (Fernet)
+spending_limit: int          # micro-USDC (spending_limit_usdc * 1_000_000)
+expiry: datetime             # session expiry (UTC)
+session_token_address: str   # on-chain SessionToken PDA address
+```
+
+Migration was applied in `alembic/versions/6e84c397014c_add_sessions_table.py`.
+
+Worker uses `session_service.get_active_session_model(db, user_id)` (returns ORM) to decrypt the key. Router uses `get_active_session(db, user_id)` (returns Pydantic schema).
 
 ## Jupiter Mock Mode
 
@@ -84,6 +106,21 @@ Jupiter API v6 is mainnet-only. In devnet:
 3. **Volatility check** — `volatility > 0.15` → reject (extreme swings)
 4. **OpenAI** (if `USE_AI=true`, history ≥ 5 points) — gpt-4o-mini with buy-the-dip context
 5. **Fallback heuristic** — simple drop ≥ target comparison
+
+### Current limitations
+
+- Price history is an in-memory `deque(maxlen=20)` — lost on restart, only ~100s of data
+- `metrics.py` has `calculate_trend()` (linear regression) and `calculate_volatility()` (std of returns) — no RSI, no moving averages, no volume
+- AI prompt is buy-the-dip only; no real trading indicators
+
+### Planned: persistent history + trading indicators (Phase 5.3+)
+
+Persisting price history to DB (table `price_history`) unlocks real technical analysis:
+- **RSI** — identify oversold conditions (RSI < 30) before executing
+- **Moving averages** — MA20/MA50 crossover as trend signal
+- **Volume** — validate price moves with volume confirmation
+
+With sufficient history, the strategy `drop_percent` condition becomes a **trigger** (price entered the zone), and the AI decides whether to execute based on RSI + trend + volume. This evolves "buy on X% drop" into genuine algorithmic trading.
 
 ## Models
 
@@ -130,12 +167,241 @@ created_at: datetime
 ```
 DATABASE_URL=postgresql+asyncpg://user:pass@host/db
 SECRET_KEY=<jwt-signing-key>
-SOLANA_PRIVATE_KEY=[...]            # JSON byte array, agent keypair
-OPENAI_API_KEY=<key>               # optional
-USE_AI=false                       # true to enable OpenAI gating
+SOLANA_PRIVATE_KEY=[...]     # reserved — will be used as fallback/seed in Phase 2
+OPENAI_API_KEY=<key>        # optional
+USE_AI=false                # true to enable OpenAI gating
 AI_TIMEOUT_SECONDS=5
 ACCESS_TOKEN_EXPIRE_MINUTES=60
 ALLOWED_ORIGINS=["http://localhost:8080"]
+```
+
+> `SOLANA_PRIVATE_KEY` is not used in the current execution flow. It is reserved for Phase 2 and may be repurposed or removed once the ephemeral key architecture is fully implemented.
+
+## Backend Coding Standards
+
+Every new domain (e.g., `alerts`, `positions`) must follow this structure:
+
+```
+services/<domain>/
+  repository.py     — SQLAlchemy queries only, no business logic
+  service.py        — business logic, always returns Pydantic schemas
+schemas/<domain>.py — Pydantic v2 input/output shapes
+models/<domain>.py  — SQLAlchemy ORM model
+api/v1/routers/<domain>.py — HTTP routing
+```
+
+### Repository
+
+Extend `SQLAlchemyRepository[Model]` from `app.core.repositories`. Only database queries here.
+
+```python
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.core.repositories import SQLAlchemyRepository
+from app.models.foo import Foo
+
+class FooRepository(SQLAlchemyRepository[Foo]):
+    model = Foo
+
+    async def get_by_bar(self, db: AsyncSession, bar_id: int) -> Foo | None:
+        stmt = select(self.model).where(self.model.bar_id == bar_id)
+        return await self._get_one(db, stmt)
+```
+
+**Available base methods** (never reimplement these):
+- `get(db, id)` — lookup by PK
+- `create(db, entity)` — add + flush
+- `update_fields(db, entity, dict)` — setattr + flush
+- `delete(db, entity)` — delete + flush
+- `list(db, order_by=None)` → `list[Model]`
+- `list_paginated(db, params, order_by=None)` → `(list[Model], int)`
+
+### Service
+
+```python
+from fastapi import HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.core.pagination import PaginationParams, PaginationMetaBuilder
+from app.services.foo.repository import FooRepository
+from app.schemas.foo import FooCreate, FooUpdate, FooResponse, FooListItemResponse
+
+class FooService:
+    def __init__(self, repository: FooRepository | None = None):
+        self.repository = repository or FooRepository()
+
+    async def list(self, db: AsyncSession, params: PaginationParams):
+        items, total = await self.repository.list_paginated(db, params)
+        meta = PaginationMetaBuilder.build(total, params)
+        return [FooListItemResponse.model_validate(i) for i in items], meta
+
+    async def get(self, db: AsyncSession, foo_id: int) -> FooResponse:
+        foo = await self.repository.get(db, foo_id)
+        if not foo:
+            raise HTTPException(status_code=404, detail="Foo not found")
+        return FooResponse.model_validate(foo)
+
+    async def create(self, db: AsyncSession, data: FooCreate) -> FooResponse:
+        foo = self.repository.model(**data.model_dump())
+        await self.repository.create(db, foo)
+        return FooResponse.model_validate(foo)
+
+    async def update(self, db: AsyncSession, foo_id: int, data: FooUpdate) -> FooResponse:
+        foo = await self.repository.get(db, foo_id)
+        if not foo:
+            raise HTTPException(status_code=404, detail="Foo not found")
+        await self.repository.update_fields(db, foo, data.model_dump(exclude_unset=True))
+        return FooResponse.model_validate(foo)
+
+    async def delete(self, db: AsyncSession, foo_id: int) -> None:
+        foo = await self.repository.get(db, foo_id)
+        if not foo:
+            raise HTTPException(status_code=404, detail="Foo not found")
+        await self.repository.delete(db, foo)
+```
+
+**Service rules:**
+- Returns Pydantic schemas (`Schema.model_validate(orm_obj)`), never raw ORM objects
+- Raises `HTTPException` for not-found and business errors
+- Never calls `db.commit()` — commit belongs in the router
+- List methods return `(list[Schema], PageMeta)` tuple
+
+### Schemas
+
+Naming: `FooCreate`, `FooUpdate`, `FooResponse`, `FooListItemResponse`
+
+```python
+from datetime import datetime
+from pydantic import BaseModel
+
+class FooCreate(BaseModel):
+    name: str
+    value: float
+
+class FooUpdate(BaseModel):
+    name: str | None = None    # all fields optional for PATCH
+    value: float | None = None
+
+class FooResponse(BaseModel):
+    id: int
+    name: str
+    value: float
+    created_at: datetime
+    class Config:
+        from_attributes = True
+
+class FooListItemResponse(BaseModel):
+    id: int
+    name: str                  # omit heavy/unused fields in list view
+    class Config:
+        from_attributes = True
+```
+
+### Router
+
+```python
+from fastapi import APIRouter, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.core.auth import get_current_user
+from app.core.pagination import PaginationParams
+from app.core.responses import paginated_response, success_response
+from app.db.session import get_db
+from app.schemas.foo import FooCreate, FooUpdate
+from app.services.foo.service import FooService
+
+router = APIRouter(prefix="/foos", tags=["foos"])
+
+def get_foo_service():
+    return FooService()
+
+@router.get("")
+async def list_foos(
+    params: PaginationParams = Depends(),
+    db: AsyncSession = Depends(get_db),
+    service: FooService = Depends(get_foo_service),
+    current_user=Depends(get_current_user),
+):
+    data, meta = await service.list(db, params)
+    return paginated_response([item.model_dump(mode="json") for item in data], meta)
+
+@router.get("/{foo_id}")
+async def get_foo(
+    foo_id: int,
+    db: AsyncSession = Depends(get_db),
+    service: FooService = Depends(get_foo_service),
+    current_user=Depends(get_current_user),
+):
+    result = await service.get(db, foo_id)
+    return success_response(result.model_dump(mode="json"))
+
+@router.post("", status_code=201)
+async def create_foo(
+    data: FooCreate,
+    db: AsyncSession = Depends(get_db),
+    service: FooService = Depends(get_foo_service),
+    current_user=Depends(get_current_user),
+):
+    result = await service.create(db, data)
+    await db.commit()
+    return success_response(result.model_dump(mode="json"))
+
+@router.patch("/{foo_id}")
+async def update_foo(
+    foo_id: int,
+    data: FooUpdate,
+    db: AsyncSession = Depends(get_db),
+    service: FooService = Depends(get_foo_service),
+    current_user=Depends(get_current_user),
+):
+    result = await service.update(db, foo_id, data)
+    await db.commit()
+    return success_response(result.model_dump(mode="json"))
+
+@router.delete("/{foo_id}", status_code=204)
+async def delete_foo(
+    foo_id: int,
+    db: AsyncSession = Depends(get_db),
+    service: FooService = Depends(get_foo_service),
+    current_user=Depends(get_current_user),
+):
+    await service.delete(db, foo_id)
+    await db.commit()
+```
+
+**Router rules:**
+- POST → `status_code=201`; DELETE → `status_code=204`, no return value
+- Single object response: `success_response(result.model_dump(mode="json"))`
+- List response: `paginated_response([item.model_dump(mode="json") for item in data], meta)`
+- `db.commit()` in router, never in service
+- Service injected via factory: `def get_foo_service(): return FooService()`
+
+### Auth dependency selection
+
+| Use case | Dependency |
+|----------|------------|
+| Identify the current user | `current_user = Depends(get_current_user)` from `app.core.auth` |
+| Resource scoped to a wallet | `wallet = Depends(get_current_wallet)` from `app.core.dependencies` (reads `X-Wallet-Address` header) |
+
+### Register the router
+
+Add to `app/api/v1/router.py`:
+
+```python
+from app.api.v1.routers.foo import router as foo_router
+router.include_router(foo_router)
+```
+
+### Checklist: new domain object
+
+```
+[ ] app/models/foo.py              — SQLAlchemy model
+[ ] app/models/__init__.py         — add: from .foo import Foo
+[ ] alembic revision --autogenerate -m "add foo table"
+[ ] alembic upgrade head
+[ ] app/services/foo/repository.py
+[ ] app/services/foo/service.py
+[ ] app/schemas/foo.py
+[ ] app/api/v1/routers/foo.py
+[ ] app/api/v1/router.py           — router.include_router(foo_router)
 ```
 
 ## Database Migrations
@@ -150,14 +416,15 @@ Migration files: `alembic/versions/`
 
 ## Auth
 
-- Phantom wallet signs a message → backend verifies signature → issues JWT
+- Phantom wallet signs a message → backend verifies ed25519 signature → issues JWT
 - Short-lived access token (60 min) + long-lived refresh token (7 days)
 - Both are stateless JWTs with `type` claim (`"access"` / `"refresh"`)
 - Frontend auto-refreshes via `POST /api/v1/auth/refresh` on 401
 
 ## Key Design Decisions
 
+- **No shared server keypair**: The server does not hold a master Solana private key. In Phase 2, it holds encrypted ephemeral keys generated by each user and scoped to their session.
 - **Single-worker**: `strategy_runner` is designed for one Uvicorn worker. Multi-worker would need Redis-backed locking.
 - **Idempotency**: `external_id` is a deterministic hash of `(strategy_id, price_window)`; unique DB constraint prevents double execution.
 - **Price caching**: CoinGecko cached 30s in-process; falls back to last known price on error.
-- **Agent keypair**: used only for SOL/USDC transfers. Jupiter swaps are signed by the user's Phantom wallet directly.
+- **Current signing model**: Worker creates pending executions; user signs each one via Phantom. Phase 2 replaces this with autonomous signing via session keys.

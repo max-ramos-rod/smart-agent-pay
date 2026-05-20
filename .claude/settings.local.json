@@ -2,7 +2,43 @@
   "permissions": {
     "allow": [
       "Bash(git pull *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(solana --version)",
+      "Bash(anchor --version)",
+      "Bash(rustc --version)",
+      "Bash(cargo --version)",
+      "Bash(npm --version)",
+      "Bash(yarn --version)",
+      "Bash(avm --version)",
+      "Bash(solana config *)",
+      "Bash(rustup show *)",
+      "Bash(solana-keygen pubkey *)",
+      "Bash(solana balance *)",
+      "Bash(cat /home/max/.config/solana/cli/config.yml)",
+      "Read(//home/max/.config/solana/cli/**)",
+      "Bash(rustup target *)",
+      "Read(//home/max/.local/share/solana/install/releases/stable-40a31afec617906273511e2936ad098a9b52b39c/solana-release/bin/**)",
+      "Read(//home/max/.rustup/toolchains/**)",
+      "Bash(cargo build-sbf *)",
+      "Bash(~/.local/share/solana/install/active_release/bin/cargo-build-sbf --version)",
+      "Bash(anchor init *)",
+      "Bash(mv /home/max/sentinelfi/sentinelfi /home/max/sentinelfi/contracts && ls /home/max/sentinelfi/contracts/)",
+      "Bash(anchor build *)",
+      "Bash(cargo test *)",
+      "Bash(anchor deploy *)",
+      "Bash(npm install *)",
+      "Bash(npm show *)",
+      "Bash(node -e \"const a = require\\('@anchor-lang/core'\\); console.log\\('OK', Object.keys\\(a\\).slice\\(0,5\\)\\)\")",
+      "Bash(npx tsc *)",
+      "Bash(python3 -c \"from cryptography.fernet import Fernet; print\\('OK'\\)\")",
+      "Bash(.venv/bin/alembic revision *)",
+      "Bash(.venv/bin/alembic upgrade *)",
+      "Bash(.venv/bin/python -c \"from app.workers.strategy_runner import run_strategies; from app.services.session.service import SessionService; from app.services.session.crypto import encrypt_key, decrypt_key; print\\('OK'\\)\")",
+      "Bash(.venv/bin/pip install *)",
+      "Bash(.venv/bin/python -c ' *)"
+    ],
+    "additionalDirectories": [
+      "/home/max/sentinelfi/sentinelfi"
     ]
   }
 }

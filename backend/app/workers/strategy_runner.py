@@ -5,7 +5,6 @@
 # 3. import corrigido do generate_execution_id
 
 import time
-import json
 import asyncio
 import httpx
 from collections import deque
@@ -16,12 +15,12 @@ from app.services.strategy.service import StrategyService
 from app.services.execution.service import ExecutionService
 from app.services.solana.service import SolanaService
 from app.services.jupiter.service import JupiterService
+from app.services.session.service import SessionService
 from app.utils.idempotency import generate_execution_id
 from app.utils.logging import log_agent_execution
 from app.services.ai.agent import AIAgent
 
-from solders.keypair import Keypair
-from app.core.config import settings
+
 
 # price_history FORA do loop — sobrevive entre iterações do while True
 _price_history: deque = deque(maxlen=20)
@@ -68,12 +67,10 @@ async def run_strategies():
     ai_agent = AIAgent()
 
     solana_service = SolanaService()
-    private_key = json.loads(settings.SOLANA_PRIVATE_KEY)
-    agent_keypair = Keypair.from_bytes(bytes(private_key))
-
     strategy_service = StrategyService()
     execution_service = ExecutionService()
     jupiter_service = JupiterService()
+    session_service = SessionService()
 
     while True:
         async with AsyncSessionLocal() as db:
@@ -132,6 +129,8 @@ async def run_strategies():
                         print(f"⏭️ Já existe awaiting_signature para strategy {s.id}, aguardando usuário")
                         continue
 
+                    # verifica se o usuário tem sessão ativa
+                    active_session = await session_service.get_active_session_model(db, s.wallet.user_id)
 
                     if s.type == "swap":
                         amount_in = s.amount_sol if s.token_in == "SOL" else (s.amount_usdc or 0)
@@ -168,14 +167,47 @@ async def run_strategies():
                         )
                         print(f"🔄 Swap{suffix}: {amount_in} {s.token_in} → ~{out_label} (strategy {s.id})")
                     else:
-                        await execution_service.create_awaiting_signature(
-                            db=db,
-                            strategy_id=s.id,
-                            wallet_id=s.wallet_id,
-                            external_id=execution_id,
-                            trigger_price=price,
-                        )
-                        print(f"⏳ {s.token}: aguardando assinatura Phantom (strategy {s.id})")
+                        if active_session:
+                            # sessão ativa — agente assina autonomamente
+                            try:
+                                ephemeral_keypair = session_service.get_ephemeral_keypair(active_session)
+                                amount = s.amount_usdc if s.token == "USDC" else s.amount_sol
+                                if s.token == "USDC":
+                                    tx_hash = await solana_service.transfer_usdc(
+                                        ephemeral_keypair, s.destination_address, amount
+                                    )
+                                else:
+                                    tx_hash = await solana_service.transfer_sol(
+                                        ephemeral_keypair, s.destination_address, amount
+                                    )
+                                await execution_service.create_completed_execution(
+                                    db=db,
+                                    strategy_id=s.id,
+                                    wallet_id=s.wallet_id,
+                                    external_id=execution_id,
+                                    tx_hash=tx_hash,
+                                    trigger_price=price,
+                                )
+                                print(f"✅ Autônomo: {amount} {s.token} enviado (strategy {s.id}) tx={tx_hash[:8]}...")
+                            except Exception as e:
+                                print(f"⚠️ Execução autônoma falhou, criando awaiting_signature: {e}")
+                                await execution_service.create_awaiting_signature(
+                                    db=db,
+                                    strategy_id=s.id,
+                                    wallet_id=s.wallet_id,
+                                    external_id=execution_id,
+                                    trigger_price=price,
+                                )
+                        else:
+                            # sem sessão — aguarda assinatura manual do usuário
+                            await execution_service.create_awaiting_signature(
+                                db=db,
+                                strategy_id=s.id,
+                                wallet_id=s.wallet_id,
+                                external_id=execution_id,
+                                trigger_price=price,
+                            )
+                            print(f"⏳ {s.token}: aguardando assinatura Phantom (strategy {s.id})")
 
                     await db.flush()
 

@@ -1,6 +1,6 @@
 # CLAUDE.md — Frontend
 
-React + Vite frontend for SentinelFi. Single-page application where users connect a Phantom wallet, create price-drop strategies, and sign on-chain transactions when the AI agent triggers an execution.
+React + Vite frontend for SentinelFi. Single-page application where users connect a Phantom wallet, create price-drop strategies, authorize an AI agent via Session Keys, and sign on-chain transactions when strategies trigger.
 
 ## Stack
 
@@ -39,7 +39,7 @@ src/
     Sparkline.tsx    — mini price chart
     ui/              — shadcn/ui components (do not edit directly)
   hooks/
-    usePhantom.ts    — wallet connect + sendSol/sendUsdc/signAndSendSwap
+    usePhantom.ts    — wallet connect + sendSol/sendUsdc/signAndSendSwap + createSession
     useStrategy.ts   — React Query wrapper for strategy CRUD
     useWallet.ts     — React Query wrapper for wallet API
     usePrice.ts      — React Query wrapper for price polling
@@ -52,6 +52,7 @@ src/
     auth.ts          — login, refresh
     wallets.ts       — wallet registration
     agent.ts         — agent status
+    sessions.ts      — createSession, revokeSession (Phase 2)
     demo.ts          — override-price for testing
     logs.ts          — execution logs
   assets/
@@ -65,7 +66,7 @@ public/
 
 ## Phantom Wallet Integration (`hooks/usePhantom.ts`)
 
-Three on-chain actions:
+### Current on-chain actions
 
 | function | use |
 |----------|-----|
@@ -73,9 +74,30 @@ Three on-chain actions:
 | `sendUsdc(toAddress, amountUsdc)` | USDC SPL transfer (legacy Transaction) |
 | `signAndSendSwap(serializedTxBase64)` | Jupiter swap (VersionedTransaction) |
 
+### Phase 2 — Session Key actions (to be added)
+
+| function | use |
+|----------|-----|
+| `createSession(spendingLimit, expiryDays)` | Generates ephemeral keypair, user signs once via Phantom to create on-chain `SessionToken`, sends ephemeral private key to backend |
+| `revokeSession()` | User signs `revoke_session` instruction via Phantom |
+
 `signAndSendSwap` deserializes the base64 transaction from the backend and sends it directly via `provider.signAndSendTransaction()` — no re-building needed.
 
 Connection: **devnet** (`clusterApiUrl("devnet")`).
+
+## Session Key Flow (Phase 2)
+
+```
+User clicks "Authorize Agent"
+  → browser generates ephemeral Keypair (web3.js)
+  → Phantom signs create_session TX
+      (SessionToken.owner = user wallet, SessionToken.delegate = ephemeral pubkey)
+  → ephemeral_private_key sent to POST /sessions
+  → backend stores encrypted key per user
+  → worker now executes autonomously within spending_limit + expiry
+```
+
+The user never needs to sign again until the session expires or they revoke it.
 
 ## Strategy Form (Index.tsx)
 
@@ -83,14 +105,18 @@ Two modes toggled by `strategyMode` state:
 
 ### Transfer mode (`type: "transfer"`)
 - Fields: drop %, SOL amount, destination address, reference price, cooldown, execution mode, token (SOL/USDC)
-- Worker executes a direct SOL or USDC transfer using the agent keypair
+- Without session: user signs each transfer via Phantom
+- With session active: worker signs autonomously using ephemeral key
 
 ### Swap mode (`type: "swap"`)
 - Fields: drop %, token in/out (SOL ↔ USDC), amount, slippage bps, reference price
 - Worker calls Jupiter API for quote + VersionedTransaction
-- User signs the Jupiter TX with Phantom
+- Without session: user signs the Jupiter TX with Phantom
+- With session active: worker signs autonomously
 
 ## Execution Signing Flow (`handleSignPhantom` in Index.tsx)
+
+Current flow (pre-Session Keys):
 
 ```
 execution received
@@ -100,6 +126,8 @@ execution received
 ```
 
 After signing, calls `PATCH /executions/:id` with `{ tx_hash, status: "completed" }`.
+
+With Session Keys active, this entire manual step is eliminated — the worker handles it.
 
 ## API Layer (`services/api.ts`)
 
