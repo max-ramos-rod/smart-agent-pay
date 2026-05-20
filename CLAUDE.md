@@ -4,7 +4,7 @@ This file provides guidance to Claude Code when working with code in this reposi
 
 ## Project Overview
 
-SentinelFi is an automated trading strategy execution platform for Solana. Users connect a Phantom wallet, define price-drop strategies, and a background worker monitors CoinGecko prices every 5 seconds. When a strategy triggers, the worker creates a pending execution that the user signs via Phantom — or, once Session Keys are implemented, the agent executes autonomously within user-defined limits without requiring a signature each time.
+SentinelFi is an automated trading strategy execution platform for Solana. Users connect a Phantom wallet, define price-drop strategies, and a background worker monitors CoinGecko prices every 5 seconds. When a strategy triggers, the worker executes autonomously within the user's Session Key limits — or, if no session is active, creates a pending execution for the user to sign via Phantom.
 
 Target: **Solana Frontier Hackathon 2026**. Core differentiator: Session Keys architecture where users delegate spending authority once, and the AI agent acts fully autonomously within those limits.
 
@@ -57,10 +57,10 @@ Backend (FastAPI, port 8001)
   └─ AI Agent (optional, OpenAI) — gates execution decisions
 PostgreSQL 17
 Solana (devnet → mainnet)
-  └─ Anchor Program (Phase 2) — SessionToken accounts per user
+  └─ Anchor Program — SessionToken accounts per user (deployed devnet)
 ```
 
-## Session Keys Architecture (Phase 2 — core differentiator)
+## Session Keys Architecture (implemented — core differentiator)
 
 The goal is **fully autonomous execution** without the user signing each transaction.
 
@@ -100,11 +100,11 @@ sessions
   session_token_address     ← on-chain SessionToken PDA
 ```
 
-## Current Execution Flow (pre-Session Keys)
+## Execution Flow
 
-Worker detects price drop → creates `awaiting_signature` or `awaiting_swap` execution in DB → frontend polls → user clicks to sign via Phantom → frontend PATCHes execution with `tx_hash`.
+**With active session (autonomous):** Worker detects price drop → checks active session → signs with ephemeral key → creates `completed` execution directly.
 
-The server does **not** sign any transactions in the current flow.
+**Without session (manual fallback):** Worker detects price drop → creates `awaiting_signature` or `awaiting_swap` execution in DB → frontend polls → user clicks to sign via Phantom → frontend PATCHes execution with `tx_hash`.
 
 ## Backend Layer Pattern
 
@@ -127,14 +127,14 @@ All API responses use an envelope: `{ "data": {...}, "meta": { ...pagination } }
 | `app/services/jupiter/service.py` | Jupiter API v6 — quote, swap TX, mock fallback |
 | `app/services/ai/agent.py` | OpenAI-based execution gating (enabled via `USE_AI=true`) |
 | `app/services/execution/service.py` | Execution CRUD, expiry logic |
-| `app/api/v1/routers/sessions.py` | Session key management (stub — Phase 2) |
+| `app/api/v1/routers/sessions.py` | Session key management — POST/GET/DELETE (implemented) |
 | `app/api/v1/routers/demo.py` | `POST /demo/override-price` — inject fake price for testing |
 | `backend/scripts/gera_token.py` | Generate JWT tokens for manual testing |
 
 ## Frontend Structure
 
 - `src/services/` — Axios API call wrappers (one file per domain)
-- `src/hooks/` — React Query hooks (`useStrategy`, `useWallet`, `usePrice`, `useAgent`, `usePhantom`)
+- `src/hooks/` — React Query hooks (`useStrategy`, `useWallet`, `usePrice`, `useAgent`, `usePhantom`, `useSession`)
 - `src/pages/` — Route-level page components
 - `src/components/` — Reusable UI components (shadcn/ui + Radix primitives)
 - `src/test/` — Vitest tests, jsdom environment
@@ -145,7 +145,7 @@ All API responses use an envelope: `{ "data": {...}, "meta": { ...pagination } }
 ```
 DATABASE_URL=postgresql+asyncpg://user:pass@host/db
 SECRET_KEY=<jwt-signing-key>
-SOLANA_PRIVATE_KEY=[...]          # reserved for Phase 2 (agent delegate keypair seed)
+SOLANA_PRIVATE_KEY=[...]          # unused — ephemeral keys come from user sessions (may be removed)
 OPENAI_API_KEY=<key>             # optional
 USE_AI=false
 AI_TIMEOUT_SECONDS=5
@@ -232,152 +232,3 @@ docker-compose up --build
 
 The Solana CLI and Anchor toolchain are already installed in WSL from a separate project. Reuse that environment for any smart contract work on top of SentinelFi.
 
----
-
-# CLAUDE.md
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-## Project Overview
-
-SentinelFi is an automated trading strategy execution platform for Solana. Users connect a Phantom wallet, define price-drop strategies, and a background worker monitors CoinGecko prices every 5 seconds to execute on-chain transfers automatically. An optional AI layer (OpenAI) can make execution decisions.
-
-## Development Commands
-
-### Backend (FastAPI)
-
-```bash
-cd backend
-python -m venv .venv
-.venv\Scripts\activate          # Windows
-pip install -r requirements.txt
-alembic upgrade head             # run DB migrations
-uvicorn app.main:app --reload --port 8001
-```
-
-### Frontend (React + Vite)
-
-```bash
-cd frontend
-npm install
-npm run dev          # dev server on port 8080
-npm run build        # production build
-npm run lint         # ESLint
-npm run test         # run tests once (Vitest)
-npm run test:watch   # watch mode
-```
-
-To run a single test file:
-```bash
-cd frontend
-npx vitest run src/path/to/file.test.ts
-```
-
-### Docker (full stack)
-
-```bash
-docker-compose up --build
-```
-
-Requires an external Docker network named `app_network`:
-```bash
-docker network create app_network
-```
-
-## Architecture
-
-```
-Frontend (React/TS, port 8080)
-  └─ Axios + React Query → REST API
-Backend (FastAPI, port 8001)
-  ├─ Routers → Services → Repositories → PostgreSQL
-  ├─ Background Worker (strategy_runner) — runs on startup
-  │     polls CoinGecko every 5s, executes Solana transfers
-  └─ AI Agent (optional, OpenAI) — gates execution decisions
-PostgreSQL 17
-```
-
-### Backend Layer Pattern
-
-All routes follow: **Router → Service → Repository → DB**
-
-- `app/routers/` — HTTP routing, request/response shapes
-- `app/services/` — business logic, orchestration
-- `app/repositories/` — SQLAlchemy queries (async)
-- `app/models/` — SQLAlchemy ORM models
-- `app/schemas/` — Pydantic v2 schemas
-
-All API responses use an envelope:
-```json
-{ "data": {...}, "meta": { ...pagination } }
-```
-
-### Key Backend Services
-
-| Path | Purpose |
-|------|---------|
-| `app/workers/strategy_runner.py` | Core background task; polls price, evaluates strategies, submits Solana TXs, deduplicates via `external_id` |
-| `app/services/solana/` | Solana SDK interactions, wallet signing, transfers |
-| `app/services/ai/agent.py` | OpenAI-based execution gating (enabled via `USE_AI=true`) |
-| `app/services/strategy/` | Strategy CRUD and evaluation logic |
-| `app/services/execution/` | Execution logging and audit trail |
-| `backend/scripts/gera_token.py` | Generate JWT tokens for manual testing |
-| `backend/scripts/reset_executions.py` | Reset execution records in DB |
-
-### Frontend Structure
-
-- `src/services/` — Axios API call wrappers (one file per domain)
-- `src/hooks/` — React Query hooks wrapping services (`useStrategy`, `useWallet`, `usePrice`, `useAgent`, `usePhantom`)
-- `src/pages/` — Route-level page components
-- `src/components/` — Reusable UI components (shadcn/ui + Radix primitives)
-- `src/test/` — Vitest tests, jsdom environment
-
-## Environment Variables
-
-**Backend** (`backend/.env` — copiar de `backend/.env.example`):
-```
-DATABASE_URL=postgresql+asyncpg://user:pass@host/db
-SECRET_KEY=<jwt-signing-key>
-SOLANA_PRIVATE_KEY=[...]                      # JSON array format
-OPENAI_API_KEY=<key>                          # optional
-USE_AI=false
-AI_TIMEOUT_SECONDS=5
-ACCESS_TOKEN_EXPIRE_MINUTES=60
-ALLOWED_ORIGINS=["http://localhost:8080"]     # optional, default cobre localhost dev
-```
-
-**Frontend** (`frontend/.env`):
-```
-VITE_API_URL=http://localhost:8001/api/v1
-```
-
-## Database Migrations
-
-```bash
-cd backend
-alembic revision --autogenerate -m "description"
-alembic upgrade head
-alembic downgrade -1
-```
-
-Migration files live in `backend/alembic/versions/`.
-
-## Key Design Decisions
-
-- **Single-worker constraint**: `strategy_runner` is designed for one Uvicorn worker. Scaling to multiple workers requires a Redis-backed lock/queue (noted in code comments).
-- **Idempotency**: Executions are deduplicated via `external_id` (unique DB constraint); the worker generates a deterministic ID before submitting to Solana.
-- **Price caching**: CoinGecko responses are cached 30 seconds inside the worker to avoid rate-limiting.
-- **Demo mode**: `POST /api/v1/demo/override-price` accepts a fake price for testing strategy triggers without real market movement.
-- **AI gating**: When `USE_AI=true`, the AI agent must approve each execution; it times out after `AI_TIMEOUT_SECONDS` and falls back to rule-based execution.
-- **Refresh token**: Auth issues a short-lived access token (60 min) + long-lived refresh token (7 days). Both are stateless JWTs differentiated by `type` claim (`"access"` / `"refresh"`). The frontend interceptor renews silently via `POST /api/v1/auth/refresh` on 401, without requiring a new Phantom wallet signature.
-- **CORS**: Allowed origins are driven by `ALLOWED_ORIGINS` env var (list of strings). Defaults to `["http://localhost:8080", "http://localhost:5173"]` for local dev.
-=======
-- **Session Keys per user**: Each user generates an ephemeral keypair client-side and delegates it via an Anchor `SessionToken`. The server stores encrypted ephemeral keys per user — no shared server keypair.
-- **Current flow (pre-Phase 2)**: Worker creates pending executions; user signs each one via Phantom. Fully functional but not autonomous.
-- **Single-worker constraint**: `strategy_runner` is designed for one Uvicorn worker. Multi-worker requires Redis-backed locking.
-- **Idempotency**: Executions deduplicated via `external_id` (deterministic hash of strategy_id + price window).
-- **Price caching**: CoinGecko cached 30s in-process to avoid rate-limiting.
-- **Demo mode**: `POST /api/v1/demo/override-price` injects a fake price for testing strategy triggers.
-- **AI gating**: When `USE_AI=true`, OpenAI (gpt-4o-mini) must approve each execution; times out after `AI_TIMEOUT_SECONDS` and falls back to rule-based logic.
-- **Auth**: Phantom signs a challenge message → backend verifies ed25519 signature → issues JWT access token (60 min) + refresh token (7 days). Frontend auto-refreshes on 401.
-- **CORS**: Driven by `ALLOWED_ORIGINS` env var. Defaults to `["http://localhost:8080", "http://localhost:5173"]`.

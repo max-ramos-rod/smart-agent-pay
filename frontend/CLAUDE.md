@@ -39,7 +39,8 @@ src/
     Sparkline.tsx    — mini price chart
     ui/              — shadcn/ui components (do not edit directly)
   hooks/
-    usePhantom.ts    — wallet connect + sendSol/sendUsdc/signAndSendSwap + createSession
+    usePhantom.ts    — wallet connect + sendSol/sendUsdc/signAndSendSwap
+    useSession.ts    — createSession (ephemeral keypair + Phantom sign) + revokeSession
     useStrategy.ts   — React Query wrapper for strategy CRUD
     useWallet.ts     — React Query wrapper for wallet API
     usePrice.ts      — React Query wrapper for price polling
@@ -52,7 +53,7 @@ src/
     auth.ts          — login, refresh
     wallets.ts       — wallet registration
     agent.ts         — agent status
-    sessions.ts      — createSession, revokeSession (Phase 2)
+    sessions.ts      — createSession, revokeSession, getSession
     demo.ts          — override-price for testing
     logs.ts          — execution logs
   assets/
@@ -74,18 +75,18 @@ public/
 | `sendUsdc(toAddress, amountUsdc)` | USDC SPL transfer (legacy Transaction) |
 | `signAndSendSwap(serializedTxBase64)` | Jupiter swap (VersionedTransaction) |
 
-### Phase 2 — Session Key actions (to be added)
+### Session Key actions (`hooks/useSession.ts`)
 
 | function | use |
 |----------|-----|
 | `createSession(spendingLimit, expiryDays)` | Generates ephemeral keypair, user signs once via Phantom to create on-chain `SessionToken`, sends ephemeral private key to backend |
-| `revokeSession()` | User signs `revoke_session` instruction via Phantom |
+| `revokeSession()` | User signs `revoke_session` instruction via Phantom, calls `DELETE /sessions` |
 
 `signAndSendSwap` deserializes the base64 transaction from the backend and sends it directly via `provider.signAndSendTransaction()` — no re-building needed.
 
 Connection: **devnet** (`clusterApiUrl("devnet")`).
 
-## Session Key Flow (Phase 2)
+## Session Key Flow
 
 ```
 User clicks "Authorize Agent"
@@ -116,7 +117,7 @@ Two modes toggled by `strategyMode` state:
 
 ## Execution Signing Flow (`handleSignPhantom` in Index.tsx)
 
-Current flow (pre-Session Keys):
+Manual fallback (when no session is active):
 
 ```
 execution received
