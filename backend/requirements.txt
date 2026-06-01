@@ -55,4 +55,4 @@ typing_extensions==4.15.0
 tzdata==2026.2
 uvicorn==0.46.0
 websockets==15.0.1
-牣灹潴牧灡票
+cryptography
