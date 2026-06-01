@@ -6,17 +6,20 @@ import {
   Activity, Bot, ExternalLink, Power, Wallet,
   Zap, TrendingDown, TrendingUp, Trash2,
   CheckCircle2, XCircle, Clock, FlaskConical, Timer,
+  Shield, ShieldCheck, ShieldOff, KeyRound,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { usePhantom } from "@/hooks/usePhantom";
 import { usePrice } from "@/hooks/usePrice";
+import { useSession } from "@/hooks/useSession";
 import { Sparkline } from "@/components/Sparkline";
 import { api } from "@/services/api";
 import { getStrategies, createStrategy } from "@/services/strategy";
 import { getExecutions } from "@/services/logs";
 import { getBalances } from "@/services/wallets";
+import { getSession } from "@/services/sessions";
 import { useAuth } from "@/hooks/useAuth";
 
 type Strategy = {
@@ -51,10 +54,18 @@ const strategySchema = z.object({
   destination_address: z.string().trim().min(32, "Endereço inválido").max(64, "Endereço inválido"),
 });
 
+type SessionInfo = {
+  delegate_pubkey: string;
+  spending_limit: number;
+  expiry: string;
+  session_token_address: string;
+} | null;
+
 const Index = () => {
   const { address, connect, disconnect, connecting, sendSol, sendUsdc, signAndSendSwap } = usePhantom();
   const { loginWithWallet } = useAuth();
   const { price, history, crash } = usePrice();
+  const { createSession, revokeSession, creating, revoking } = useSession();
 
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [executions, setExecutions] = useState<Execution[]>([]);
@@ -77,24 +88,31 @@ const Index = () => {
   const [signing, setSigning] = useState(false);
   const dismissedIds = useRef<Set<string>>(new Set());
 
+  const [sessionInfo, setSessionInfo] = useState<SessionInfo>(null);
+  const [spendingLimit, setSpendingLimit] = useState("50");
+  const [expiryDays, setExpiryDays] = useState("7");
+
   // --- CORRIGIDO: uma única função de refresh, useCallback para estabilidade ---
   const refresh = useCallback(async () => {
-    try {
-      const [strat, exec, allBalances] = await Promise.all([
-        getStrategies(),
-        getExecutions(),
-        getBalances(),
-      ]);
-      setStrategies(strat);
+    const [stratResult, execResult, balResult] = await Promise.allSettled([
+      getStrategies(),
+      getExecutions(),
+      getBalances(),
+    ]);
+
+    if (stratResult.status === "fulfilled") {
+      setStrategies(stratResult.value);
+    }
+
+    if (execResult.status === "fulfilled") {
+      const exec = execResult.value;
       setExecutions(exec);
-      setBalances(allBalances);
 
       const pending = exec.filter(
         (e: Execution) => e.status === "awaiting_signature" && !dismissedIds.current.has(e.id)
       );
       if (pending.length > 0 && !signingExecution) setSigningExecution(pending[0]);
 
-      // fecha modal se a execução atual expirou no backend
       if (signingExecution) {
         const stillPending = exec.find(
           (e: Execution) => e.id === signingExecution.id && e.status === "awaiting_signature"
@@ -104,10 +122,12 @@ const Index = () => {
           toast.info("⏰ Solicitação expirada — condições podem ter mudado");
         }
       }
-    } catch (err) {
-      // silencioso — polling não deve quebrar a UI
     }
-  }, []);
+
+    if (balResult.status === "fulfilled") {
+      setBalances(balResult.value);
+    }
+  }, [signingExecution]);
 
   // --- init: auto-login e primeiro load ---
   useEffect(() => {
@@ -125,6 +145,12 @@ const Index = () => {
           localStorage.setItem("wallet_id", String(res.wallet_id));
         }
         await refresh();
+        try {
+          const sessionRes = await getSession();
+          if (sessionRes?.data) setSessionInfo(sessionRes.data);
+        } catch {
+          // sem sessão ou não autenticado ainda — ok
+        }
         setIsReady(true);
       } catch (err) {
         console.error("Erro init:", err);
@@ -137,7 +163,7 @@ const Index = () => {
   // --- CORRIGIDO: um único intervalo de polling (não dois) ---
   // Execuções a 3s, mas chamando refresh completo para evitar race condition
   // entre dois setIntervals chamando setExecutions simultaneamente.
-  // 3s é tolerável para todos os dados no hackathon.
+  // 3s é tolerável para todos os dados do dashboard.
   useEffect(() => {
     if (!isReady) return;
     const id = setInterval(refresh, 3000);
@@ -149,6 +175,29 @@ const Index = () => {
   const priceUp = priceChange >= 0;
   const [execMode, setExecMode] = useState<"recurring" | "once">("recurring");
   const [cooldown, setCooldown] = useState("60");
+
+  const handleAuthorize = async () => {
+    try {
+      await createSession(Number(spendingLimit), Number(expiryDays));
+      const sessionRes = await getSession();
+      if (sessionRes?.data) setSessionInfo(sessionRes.data);
+      toast.success("🔑 Agente autorizado", {
+        description: `Limite: ${spendingLimit} USDC · ${expiryDays} dias`,
+      });
+    } catch (err: any) {
+      toast.error("Erro ao autorizar agente", { description: err.message });
+    }
+  };
+
+  const handleRevoke = async () => {
+    try {
+      await revokeSession();
+      setSessionInfo(null);
+      toast.success("🔒 Sessão revogada — agente em modo manual");
+    } catch (err: any) {
+      toast.error("Erro ao revogar sessão", { description: err.message });
+    }
+  };
 
   const handleSignPhantom = async () => {
     if (!signingExecution) return;
@@ -343,7 +392,9 @@ const Index = () => {
         <div className="container flex items-center justify-between py-5">
           <div className="flex items-center gap-3">
             <img src={logo} alt="SentinelFi" className="h-[50px] w-auto" />
-            <p className="text-xs text-muted-foreground font-mono">solana · devnet</p>
+            <p className="text-xs text-muted-foreground font-mono">
+              solana · {import.meta.env.VITE_SOLANA_NETWORK ?? "mainnet-beta"}
+            </p>
           </div>
           {address ? (
             
@@ -403,7 +454,7 @@ const Index = () => {
             <div className="flex-1 text-sm font-medium">
               MODO DEMO ATIVO — preço simulado em ${price.toFixed(2)} (queda 6%). Agente reagindo automaticamente…
             </div>
-            <span className="font-mono text-xs opacity-60">devnet · sem risco real</span>
+            <span className="font-mono text-xs opacity-60">mainnet · preços reais</span>
           </div>
         )}
 
@@ -458,6 +509,101 @@ const Index = () => {
             </div>
           </div>
         </section>
+
+        {/* SESSION KEYS — AUTORIZAR AGENTE */}
+        {address && (
+          <section className="card-elevated rounded-2xl p-6">
+            <div className="flex items-center justify-between gap-2 mb-4">
+              <div className="flex items-center gap-2">
+                <div className={`h-8 w-8 rounded-lg flex items-center justify-center ${sessionInfo ? "bg-primary/10" : "bg-muted"}`}>
+                  {sessionInfo
+                    ? <ShieldCheck className="h-4 w-4 text-primary" />
+                    : <Shield className="h-4 w-4 text-muted-foreground" />}
+                </div>
+                <div>
+                  <h2 className="text-lg font-semibold leading-none">Autorização do Agente</h2>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {sessionInfo ? "Agente operando de forma autônoma" : "Agente aguardando autorização — assinatura manual em cada execução"}
+                  </p>
+                </div>
+              </div>
+              {sessionInfo && (
+                <span className="shrink-0 text-xs font-medium px-2 py-1 rounded-full bg-primary/10 text-primary border border-primary/20">
+                  ● ATIVO
+                </span>
+              )}
+            </div>
+
+            {sessionInfo ? (
+              <div className="space-y-3">
+                <div className="rounded-xl border border-border bg-secondary/30 p-4 grid grid-cols-2 sm:grid-cols-3 gap-4 font-mono text-sm">
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-0.5">Limite de gasto</p>
+                    <p className="font-semibold">{(sessionInfo.spending_limit / 1_000_000).toFixed(2)} USDC</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-0.5">Expira em</p>
+                    <p className="font-semibold">{new Date(sessionInfo.expiry).toLocaleDateString("pt-BR")}</p>
+                  </div>
+                  <div className="col-span-2 sm:col-span-1">
+                    <p className="text-xs text-muted-foreground mb-0.5">Delegate</p>
+                    <p className="font-semibold text-xs truncate">{sessionInfo.delegate_pubkey.slice(0, 8)}…{sessionInfo.delegate_pubkey.slice(-6)}</p>
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRevoke}
+                  disabled={revoking}
+                  className="gap-2 text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/30"
+                >
+                  <ShieldOff className="h-4 w-4" />
+                  {revoking ? "Revogando…" : "Revogar Sessão"}
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label htmlFor="spendingLimit">Limite de gasto (USDC)</Label>
+                    <Input
+                      id="spendingLimit"
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={spendingLimit}
+                      onChange={(e) => setSpendingLimit(e.target.value)}
+                      className="font-mono"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">Máximo que o agente pode gastar.</p>
+                  </div>
+                  <div>
+                    <Label htmlFor="expiryDays">Validade (dias)</Label>
+                    <Input
+                      id="expiryDays"
+                      type="number"
+                      min="1"
+                      max="30"
+                      step="1"
+                      value={expiryDays}
+                      onChange={(e) => setExpiryDays(e.target.value)}
+                      className="font-mono"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">Sessão expira automaticamente.</p>
+                  </div>
+                </div>
+                <Button
+                  onClick={handleAuthorize}
+                  disabled={creating || !address}
+                  className="w-full gap-2"
+                >
+                  <KeyRound className="h-4 w-4" />
+                  {creating ? "Aguardando Phantom…" : "Autorizar Agente"}
+                </Button>
+              </div>
+            )}
+          </section>
+        )}
 
         <div className="grid lg:grid-cols-2 gap-6">
           {/* CREATE STRATEGY */}
@@ -743,14 +889,19 @@ const Index = () => {
                       ref ${Number(e.reference_price).toFixed(2)} · queda alvo {Number(e.drop_percent).toFixed(1)}%
                       {e.explanation ? ` · ${e.explanation}` : ""}
                     </p>
-                    {e.tx_hash && (
-                      <a href={`https://explorer.solana.com/tx/${e.tx_hash}?cluster=devnet`}
+                    {e.tx_hash && !e.tx_hash.startsWith("demo_") ? (
+                      <a href={`https://explorer.solana.com/tx/${e.tx_hash}`}
                         target="_blank" rel="noreferrer"
                         className="inline-flex items-center gap-1 mt-2 text-xs font-mono text-accent hover:underline">
                         <ExternalLink className="h-3 w-3" />
                         ver no Solana Explorer
                       </a>
-                    )}
+                    ) : e.tx_hash?.startsWith("demo_") ? (
+                      <span className="inline-flex items-center gap-1 mt-2 text-xs font-mono text-muted-foreground">
+                        <FlaskConical className="h-3 w-3" />
+                        swap simulado
+                      </span>
+                    ) : null}
                   </div>
                 </li>
               ))}
@@ -759,7 +910,7 @@ const Index = () => {
         </section>
 
         <footer className="text-center text-xs text-muted-foreground font-mono pb-4">
-          Solana Devnet · sem risco financeiro · transações assinadas pela Phantom
+          Solana Devnet · sem risco financeiro · {sessionInfo ? "agente operando de forma autônoma via Session Keys" : "transações assinadas pela Phantom"}
         </footer>
       </main>
 
@@ -829,7 +980,7 @@ const Index = () => {
                   : signingExecution.serialized_tx
                     ? "Assinar com Phantom"
                     : signingExecution.explanation?.startsWith("Swap")
-                      ? "Simular Swap (devnet)"
+                      ? "Simular Swap"
                       : "Assinar com Phantom"}
               </Button>
             </div>

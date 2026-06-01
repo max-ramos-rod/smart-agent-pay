@@ -6,7 +6,7 @@ This file provides guidance to Claude Code when working with code in this reposi
 
 SentinelFi is an automated trading strategy execution platform for Solana. Users connect a Phantom wallet, define price-drop strategies, and a background worker monitors CoinGecko prices every 5 seconds. When a strategy triggers, the worker executes autonomously within the user's Session Key limits — or, if no session is active, creates a pending execution for the user to sign via Phantom.
 
-Target: **Solana Frontier Hackathon 2026**. Core differentiator: Session Keys architecture where users delegate spending authority once, and the AI agent acts fully autonomously within those limits.
+Core differentiator: Session Keys architecture where users delegate spending authority once, and the AI agent acts fully autonomously within those limits.
 
 ## Development Commands
 

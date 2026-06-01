@@ -58,12 +58,21 @@ export function useSession() {
 
         const program = new Program(idl as any, anchorProvider);
 
+        // 4. Se o PDA já existe on-chain, revogar antes (init falha com conta existente)
+        const existingAccount = await CONNECTION.getAccountInfo(sessionPda);
+        if (existingAccount) {
+          await (program.methods as any)
+            .revokeSession()
+            .accounts({ owner: ownerPubkey, sessionToken: sessionPda })
+            .rpc();
+        }
+
         const spendingLimitRaw = new BN(spendingLimitUsdc * 1_000_000); // micro-USDC
         const expiryTimestamp = new BN(
           Math.floor(Date.now() / 1000) + expiryDays * 86400
         );
 
-        // 4. Usuário assina create_session via Phantom
+        // 5. Usuário assina create_session via Phantom
         await (program.methods as any)
           .createSession(spendingLimitRaw, expiryTimestamp)
           .accounts({
@@ -73,7 +82,7 @@ export function useSession() {
           })
           .rpc();
 
-        // 5. Enviar ephemeral private key ao backend (criptografada em trânsito via HTTPS)
+        // 6. Enviar ephemeral private key ao backend (criptografada em trânsito via HTTPS)
         await api.post("/sessions", {
           delegate_pubkey: ephemeralKeypair.publicKey.toBase58(),
           ephemeral_private_key: Buffer.from(ephemeralKeypair.secretKey).toString("base64"),

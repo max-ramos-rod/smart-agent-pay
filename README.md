@@ -2,8 +2,6 @@
 
 Automated trading strategy execution platform for Solana. Users connect a Phantom wallet, define price-drop strategies, and an AI agent monitors the market and executes trades autonomously via Session Keys — no manual signing required after the initial authorization.
 
-Built for the **Solana Frontier Hackathon 2026**.
-
 ---
 
 ## Vision

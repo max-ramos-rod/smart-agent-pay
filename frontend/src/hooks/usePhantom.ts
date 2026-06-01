@@ -6,7 +6,6 @@ import {
   Transaction,
   VersionedTransaction,
   LAMPORTS_PER_SOL,
-  clusterApiUrl,
 } from "@solana/web3.js";
 import {
   getAssociatedTokenAddress,
@@ -32,7 +31,9 @@ declare global {
   }
 }
 
-const connection = new Connection(clusterApiUrl("devnet"), "confirmed");
+const RPC_URL = import.meta.env.VITE_SOLANA_RPC_URL as string;
+const USDC_MINT_ADDRESS = import.meta.env.VITE_USDC_MINT as string;
+const connection = new Connection(RPC_URL, "confirmed");
 
 export function usePhantom() {
   const [address, setAddress] = useState<string | null>(null);
@@ -104,7 +105,7 @@ export function usePhantom() {
       const provider = window.solana;
       if (!provider?.publicKey) throw new Error("Wallet not connected");
 
-      const USDC_MINT = new PublicKey("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU");
+      const USDC_MINT = new PublicKey(USDC_MINT_ADDRESS);
       const fromPubkey = new PublicKey(provider.publicKey.toString());
       const toPubkey = new PublicKey(toAddress);
 

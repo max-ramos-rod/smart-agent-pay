@@ -35,7 +35,8 @@
       "Bash(.venv/bin/alembic upgrade *)",
       "Bash(.venv/bin/python -c \"from app.workers.strategy_runner import run_strategies; from app.services.session.service import SessionService; from app.services.session.crypto import encrypt_key, decrypt_key; print\\('OK'\\)\")",
       "Bash(.venv/bin/pip install *)",
-      "Bash(.venv/bin/python -c ' *)"
+      "Bash(.venv/bin/python -c ' *)",
+      "Bash(npm run *)"
     ],
     "additionalDirectories": [
       "/home/max/sentinelfi/sentinelfi"
