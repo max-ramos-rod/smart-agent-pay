@@ -31,8 +31,8 @@ declare global {
   }
 }
 
-const RPC_URL = import.meta.env.VITE_SOLANA_RPC_URL as string;
-const USDC_MINT_ADDRESS = import.meta.env.VITE_USDC_MINT as string;
+const RPC_URL = import.meta.env.VITE_SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
+const USDC_MINT_ADDRESS = import.meta.env.VITE_USDC_MINT || "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const connection = new Connection(RPC_URL, "confirmed");
 
 export function usePhantom() {
