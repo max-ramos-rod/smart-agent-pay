@@ -48,8 +48,16 @@ All responses use the envelope: `{ "data": {...}, "meta": {...} }`
 | `app/services/ai/metrics.py` | `calculate_trend()`, `calculate_volatility()` for price history |
 | `app/services/solana/service.py` | SOL / USDC transfer construction (accepts ephemeral keypair from user session) |
 | `app/services/execution/service.py` | `create_awaiting_signature()`, `create_awaiting_swap()`, expiry logic |
+| `app/services/session/crypto.py` | Fernet encrypt/decrypt of ephemeral private keys |
+| `app/api/v1/routers/auth.py` | Phantom challenge/login, JWT issue, token refresh |
 | `app/api/v1/routers/sessions.py` | Session key management — POST/GET/DELETE |
+| `app/api/v1/routers/strategies.py` | Strategy CRUD |
+| `app/api/v1/routers/executions.py` | List executions, PATCH to confirm signature |
+| `app/api/v1/routers/wallets.py` | Wallet registration + balance |
+| `app/api/v1/routers/health.py` | Liveness/readiness probe |
 | `app/api/v1/routers/demo.py` | `POST /demo/override-price` — inject fake price for testing |
+| `app/api/v1/routers/agents.py` | **DEPRECATED** — mock endpoints, não usar |
+| `app/core/logging.py` | Loguru setup — stdout + logs/sentinelfi.log + logs/errors.log |
 | `scripts/gera_token.py` | Generate JWT for manual API testing |
 | `scripts/reset_executions.py` | Wipe execution records in DB |
 
@@ -60,15 +68,24 @@ The `strategy.type` field drives worker bifurcation:
 - `transfer` — worker builds `awaiting_signature` execution; user signs SOL/USDC transfer via Phantom (or agent signs autonomously if session active)
 - `swap` — worker gets Jupiter quote + swap TX; builds `awaiting_swap` execution; user signs `VersionedTransaction` via Phantom (or agent signs if session active)
 
+> ⚠️ **Known inconsistency:** o frontend envia `type: "buy"` (não `"transfer"`). O worker cai no `else` para qualquer valor diferente de `"swap"`, então funciona — mas deveria ser padronizado para `"transfer"`. Ver `frontend/src/pages/Index.tsx` linha 284.
+
 ## Execution Statuses
+
+Valores reais do enum `ExecutionStatus` (`app/models/enums.py`):
 
 | status | meaning |
 |--------|---------|
-| `awaiting_signature` | SOL/USDC transfer pending Phantom signature |
-| `awaiting_swap` | Jupiter swap pending Phantom signature |
-| `completed` | TX confirmed on-chain |
-| `expired` | pending >3 min, auto-expired by worker |
-| `skipped` | AI/heuristic rejected execution |
+| `pending` | estado inicial (raramente visível) |
+| `awaiting_signature` | TX pendente de assinatura Phantom — usado tanto para transfer quanto para swap |
+| `success` | TX confirmada on-chain |
+| `failed` | execução falhou (ex: RPC error, saldo insuficiente) |
+| `expired` | pending >3 min, auto-expirado pelo worker |
+
+> ⚠️ **Notas:**
+> - `awaiting_swap` **não existe no enum** — `create_awaiting_swap()` usa `awaiting_signature`
+> - `completed` **não existe** — o status real é `success`
+> - `skipped` **não é um status de execução** — quando a AI rejeita, o worker apenas não cria execução (registra só em log)
 
 ## Session Keys
 
@@ -81,15 +98,39 @@ Each user generates an ephemeral keypair client-side. They sign once via Phantom
 ```python
 user_id: int                 # FK to users, unique (one session per user)
 delegate_pubkey: str         # ephemeral pubkey (on-chain delegate)
-encrypted_private_key: str   # AES-encrypted ephemeral private key (Fernet)
+encrypted_private_key: str   # Fernet-encrypted ephemeral private key
 spending_limit: int          # micro-USDC (spending_limit_usdc * 1_000_000)
 expiry: datetime             # session expiry (UTC)
 session_token_address: str   # on-chain SessionToken PDA address
 ```
 
+> ⚠️ **Crypto weakness:** a chave Fernet é derivada truncando `SECRET_KEY` para 32 bytes e preenchendo com zeros (`app/services/session/crypto.py`). Não usa PBKDF2 nem salt. Se `SECRET_KEY` vazar, todas as ephemeral keys ficam expostas. Fix planejado: Fase 4 (PBKDF2 + salt por sessão).
+
 Migration was applied in `alembic/versions/6e84c397014c_add_sessions_table.py`.
 
 Worker uses `session_service.get_active_session_model(db, user_id)` (returns ORM) to decrypt the key. Router uses `get_active_session(db, user_id)` (returns Pydantic schema).
+
+## Auth
+
+- Phantom wallet assina challenge (ed25519) → backend verifica → emite JWT
+- Access token (60 min) + refresh token (7 dias), ambos stateless com claim `"type"`
+- Frontend renova automaticamente via `POST /auth/refresh` no 401
+
+### Limitações conhecidas
+
+**Challenge store in-memory** (`app/api/v1/routers/auth.py`):
+```python
+challenge_store = {}  # perdido em restart; incompatível com multi-worker
+```
+Fix planejado: Redis com TTL de 5 minutos (Fase 4).
+
+**Usuário auto-criado com dados fake:**
+```python
+email=f"{public_key}@smartagent.pay"  # email fictício
+password="dummy"                       # não usado
+name="Wallet User"
+```
+A identidade real é a wallet Phantom — email/password são placeholders para o model de User. Fix: remover user model da cadeia de auth ou adicionar endpoint de perfil opcional.
 
 ## Jupiter Mock Mode
 
@@ -167,15 +208,21 @@ created_at: datetime
 ```
 DATABASE_URL=postgresql+asyncpg://user:pass@host/db
 SECRET_KEY=<jwt-signing-key>
-SOLANA_PRIVATE_KEY=[...]     # unused — ephemeral keys come from user sessions (may be removed)
+SOLANA_RPC_URL=https://api.mainnet-beta.solana.com   # default mainnet
+SOLANA_USDC_MINT=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v  # mainnet USDC
 OPENAI_API_KEY=<key>        # optional
 USE_AI=false                # true to enable OpenAI gating
 AI_TIMEOUT_SECONDS=5
 ACCESS_TOKEN_EXPIRE_MINUTES=60
 ALLOWED_ORIGINS=["http://localhost:8080"]
+SOLANA_PRIVATE_KEY=[...]    # UNUSED — pode ser removido
 ```
 
-> `SOLANA_PRIVATE_KEY` is not used. The ephemeral key architecture (Phase 2) is implemented — execution keys come from per-user sessions, not a server keypair. This variable may be removed.
+**Devnet (trocar para testar):**
+```
+SOLANA_RPC_URL=https://api.devnet.solana.com
+SOLANA_USDC_MINT=4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU
+```
 
 ## Backend Coding Standards
 

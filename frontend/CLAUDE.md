@@ -18,11 +18,14 @@ React + Vite frontend for SentinelFi. Single-page application where users connec
 
 ```bash
 npm install
-npm run dev        # port 8080
-npm run build      # production build
-npm run lint       # ESLint
-npm run test       # Vitest (once)
-npm run test:watch # Vitest (watch)
+npm run dev            # mainnet (padrão)
+npm run dev:devnet     # devnet
+npm run dev:mainnet    # mainnet explícito
+npm run build          # production build (mainnet)
+npm run build:devnet   # build devnet
+npm run lint           # ESLint
+npm run test           # Vitest (once)
+npm run test:watch     # Vitest (watch)
 ```
 
 Single file: `npx vitest run src/path/to/file.test.ts`
@@ -37,6 +40,7 @@ src/
   components/
     NavLink.tsx      — nav helper
     Sparkline.tsx    — mini price chart
+    ErrorBoundary.tsx — catches unhandled React errors, shows fallback UI
     ui/              — shadcn/ui components (do not edit directly)
   hooks/
     usePhantom.ts    — wallet connect + sendSol/sendUsdc/signAndSendSwap
@@ -56,6 +60,8 @@ src/
     sessions.ts      — createSession, revokeSession, getSession
     demo.ts          — override-price for testing
     logs.ts          — execution logs
+  utils/
+    monitoring.ts    — Sentry opt-in (só ativo se VITE_SENTRY_DSN definido)
   assets/
     logo.png         — SentinelFi name logo (transparent, h-[50px] in header)
   test/
@@ -84,7 +90,9 @@ public/
 
 `signAndSendSwap` deserializes the base64 transaction from the backend and sends it directly via `provider.signAndSendTransaction()` — no re-building needed.
 
-Connection: **devnet** (`clusterApiUrl("devnet")`).
+Conexão: **mainnet** por padrão via `VITE_SOLANA_RPC_URL`. Fallback hardcoded para `https://api.mainnet-beta.solana.com`.
+
+> ⚠️ `useSession.ts` ainda usa devnet — o programa Anchor está deployado somente no devnet (`HwPkZA1WSussRBD8hgRojJ2bg2Upxa1wr428gBzzoATB`). `usePhantom.ts` usa mainnet para transfers e swaps.
 
 ## Session Key Flow
 
@@ -104,7 +112,11 @@ The user never needs to sign again until the session expires or they revoke it.
 
 Two modes toggled by `strategyMode` state:
 
-### Transfer mode (`type: "transfer"`)
+### Transfer mode (`type: "buy"` no código atual)
+
+> ⚠️ O frontend envia `type: "buy"` (linha 284 de Index.tsx), não `"transfer"`. O worker trata qualquer valor diferente de `"swap"` como transfer — funciona, mas é inconsistente. Fix pendente: padronizar para `"transfer"`.
+
+### Transfer mode (`type: "transfer"` — valor esperado pelo backend)
 - Fields: drop %, SOL amount, destination address, reference price, cooldown, execution mode, token (SOL/USDC)
 - Without session: user signs each transfer via Phantom
 - With session active: worker signs autonomously using ephemeral key
@@ -126,7 +138,9 @@ execution received
   └─ else → sendSol() or sendUsdc()              # SOL/USDC transfer
 ```
 
-After signing, calls `PATCH /executions/:id` with `{ tx_hash, status: "completed" }`.
+After signing, calls `PATCH /executions/:id` with `{ tx_hash, status: "success" }`.
+
+> ⚠️ O status correto é `"success"`, não `"completed"` — verificar se Index.tsx está enviando o valor correto.
 
 With Session Keys active, this entire manual step is eliminated — the worker handles it.
 
@@ -146,6 +160,21 @@ With Session Keys active, this entire manual step is eliminated — the worker h
 
 ```
 VITE_API_URL=http://localhost:8001/api/v1
+
+# Rede Solana (mainnet por padrão)
+VITE_SOLANA_NETWORK=mainnet-beta
+VITE_SOLANA_RPC_URL=https://api.mainnet-beta.solana.com
+VITE_USDC_MINT=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
+
+# Monitoramento — deixe vazio/comentado para desativar
+# VITE_SENTRY_DSN=https://xxx@yyy.ingest.sentry.io/zzz
+```
+
+**Devnet** (usar com `npm run dev:devnet`):
+```
+VITE_SOLANA_NETWORK=devnet
+VITE_SOLANA_RPC_URL=https://api.devnet.solana.com
+VITE_USDC_MINT=4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU
 ```
 
 ## Tests
