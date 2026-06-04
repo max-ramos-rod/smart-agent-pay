@@ -163,7 +163,7 @@ The [x402 protocol](https://x402.org) standardizes HTTP `402 Payment Required` f
 - [ ] Redis-backed locking for multi-worker Uvicorn
 
 ### Phase 4.5 — Observability ⏳ **PARTIALLY DONE**
-- [x] Loguru — structured logging to file (`logs/sentinelfi.log`, `logs/errors.log`)
+- [x] Loguru — structured logging to file (`backend/logs/sentinelfi.log`, `backend/logs/errors.log`) — gitignored
 - [x] ErrorBoundary — frontend crash capture
 - [x] Sentry opt-in (`VITE_SENTRY_DSN` env var — disabled by default)
 - [ ] Loki — log aggregation (add when traffic justifies)

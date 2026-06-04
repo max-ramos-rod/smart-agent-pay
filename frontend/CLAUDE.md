@@ -129,14 +129,13 @@ Manual fallback (when no session is active):
 
 ```
 execution received
-  ├─ has serialized_tx → signAndSendSwap()       # real Jupiter mainnet
-  ├─ explanation starts with "Swap" && !serialized_tx → confirm mock swap  # devnet demo
+  ├─ has serialized_tx → signAndSendSwap()       # Jupiter swap real (mainnet)
+  ├─ explanation starts with "Swap" && !serialized_tx → confirma mock swap
   └─ else → sendSol() or sendUsdc()              # SOL/USDC transfer
 ```
 
-After signing, calls `PATCH /executions/:id` with `{ tx_hash, status: "success" }`.
-
-> ⚠️ O status correto é `"success"`, não `"completed"` — verificar se Index.tsx está enviando o valor correto.
+After signing, calls `PATCH /api/v1/executions/{id}/confirm` with `{ tx_hash }`.
+O backend define o status como `success` na rota `/confirm` — nenhum campo `status` é enviado pelo frontend.
 
 With Session Keys active, this entire manual step is eliminated — the worker handles it.
 
