@@ -151,13 +151,9 @@ const Index = () => {
 
     const init = async () => {
       try {
-        localStorage.setItem("wallet_address", address);
-        let token = localStorage.getItem("token");
+        const token = localStorage.getItem("token");
         if (!token) {
-          const res = await loginWithWallet(provider, address);
-          token = res.access_token;
-          localStorage.setItem("token", token);
-          localStorage.setItem("wallet_id", String(res.wallet_id));
+          await loginWithWallet(provider, address);
         }
         await refresh();
         try {
@@ -229,7 +225,7 @@ const Index = () => {
       } else if (isSwapExecution) {
         // Mock swap (devnet demo) — confirma sem assinatura Phantom real
         txHash = `demo_swap_${Date.now()}`;
-        toast.success("🔄 Swap simulado (devnet demo)", {
+        toast.success("🔄 Swap simulado", {
           description: signingExecution.explanation ?? "swap executado",
         });
       } else {
