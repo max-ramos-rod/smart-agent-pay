@@ -1,6 +1,7 @@
 from typing import TypedDict
 from app.core.config import settings
 import asyncio
+from loguru import logger
 from app.services.ai.metrics import calculate_trend, calculate_volatility
 # opcional: instale openai>=1.x
 from openai import AsyncOpenAI
@@ -56,7 +57,7 @@ class AIAgent:
                 timeout=settings.AI_TIMEOUT_SECONDS,
             )
         except Exception as e:
-            print(f"⚠️ AI fallback: {e}")
+            logger.warning("AI fallback ativado | erro={e}", e=e)
             return self._heuristic(strategy, price)
 
     def _heuristic(self, strategy, price: float) -> AIDecision:

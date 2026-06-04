@@ -129,9 +129,11 @@ User-delegated authority for the AI agent:
 - [x] Idempotency via `external_id` (prevents duplicate execution in same price window)
 - [x] Demo endpoint: `POST /demo/set-price` for manual testing
 
-### Phase 3 — Jupiter Mainnet ⏳ **NOT STARTED**
-- [ ] Mainnet RPC endpoint configuration
-- [ ] VersionedTransaction validation on mainnet
+### Phase 3 — Jupiter Mainnet 🔄 **IN PROGRESS**
+- [x] Mainnet RPC endpoint configuration (`SOLANA_RPC_URL` env var)
+- [x] Dual-environment support (`npm run dev:devnet` / `npm run dev:mainnet`)
+- [x] USDC mint address configurable per environment
+- [ ] VersionedTransaction validation on mainnet (end-to-end test pending)
 - [ ] Remove `[DEMO]` suffix via environment variable
 - [ ] Add token pairs: BONK, JTO, PYTH, WIF
 
@@ -150,6 +152,14 @@ The [x402 protocol](https://x402.org) standardizes HTTP `402 Payment Required` f
 - [ ] Worker validates on-chain session before each execution
 - [ ] Session expiry management and renewal UX
 - [ ] Redis-backed locking for multi-worker Uvicorn
+
+### Phase 4.5 — Observability ⏳ **PARTIALLY DONE**
+- [x] Loguru — structured logging to file (`logs/sentinelfi.log`, `logs/errors.log`)
+- [x] ErrorBoundary — frontend crash capture
+- [x] Sentry opt-in (`VITE_SENTRY_DSN` env var — disabled by default)
+- [ ] Loki — log aggregation (add when traffic justifies)
+- [ ] Grafana — dashboards for logs + metrics (add with Loki)
+- [ ] Prometheus + `prometheus-fastapi-instrumentator` — metrics (req/s, latency, worker health)
 
 ### Phase 5 — Product & Intelligence ⏳ **NOT STARTED**
 - [ ] Pix on-ramp — user deposits BRL via Pix, receives USDC on-chain (via gateway: Stripe/MoonPay/Transak)

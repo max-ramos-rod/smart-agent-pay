@@ -1,4 +1,5 @@
 import httpx
+from loguru import logger
 
 JUPITER_QUOTE_URL = "https://quote-api.jup.ag/v6/quote"
 JUPITER_SWAP_URL = "https://quote-api.jup.ag/v6/swap"
@@ -80,7 +81,7 @@ class JupiterService:
         try:
             return await self.get_quote(token_in, token_out, amount_in, slippage_bps)
         except Exception as e:
-            print(f"⚠️ Jupiter quote falhou (mock mode): {e}")
+            logger.warning("Jupiter quote falhou, ativando mock | erro={e}", e=e)
             return None
 
     def mock_quote(self, token_in: str, token_out: str, amount_in: float) -> dict:

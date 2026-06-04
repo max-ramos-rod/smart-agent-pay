@@ -9,6 +9,7 @@ import asyncio
 import httpx
 from collections import deque
 from datetime import datetime, timezone
+from loguru import logger
 
 from app.db.session import AsyncSessionLocal
 from app.services.strategy.service import StrategyService
@@ -63,7 +64,7 @@ async def get_price() -> float:
         return _price_cache["value"] or (_price_history[-1] if _price_history else 150.0)
 
 async def run_strategies():
-    print("🚀 Worker iniciado")
+    logger.info("Worker iniciado")
     ai_agent = AIAgent()
 
     solana_service = SolanaService()
@@ -77,7 +78,7 @@ async def run_strategies():
             try:
                 expired = await execution_service.expire_pending_signatures(db)
                 if expired:
-                    print(f"⏰ {expired} execução(ões) expirada(s) por timeout de 3min")
+                    logger.info("Execuções expiradas por timeout: {count}", count=expired)
 
                 strategies = await strategy_service.list_active(db)
                 price = await get_price()
@@ -85,7 +86,7 @@ async def run_strategies():
                 _price_history.append(price)
                 history = list(_price_history)
 
-                print(f"📊 Preço: {price:.2f} | histórico: {len(history)} pts")
+                logger.debug("Preço: {price:.2f} | histórico: {pts} pts", price=price, pts=len(history))
 
                 now = datetime.now(timezone.utc)
 
@@ -100,14 +101,12 @@ async def run_strategies():
                         if last.tzinfo is None:
                             last = last.replace(tzinfo=timezone.utc)
                         if (now - last).total_seconds() < s.cooldown_seconds:
-                            print(f"⏳ Cooldown ativo (strategy {s.id})")
+                            logger.debug("Cooldown ativo | strategy={id}", id=s.id)
                             continue
 
                     decision = await ai_agent.evaluate(s, price, history)
 
-                    print(
-                        f"🧠 AI (strategy {s.id}): execute={decision['execute']} | {decision['reason']}"
-                    )
+                    logger.info("AI | strategy={id} execute={execute} | {reason}", id=s.id, execute=decision["execute"], reason=decision["reason"])
 
                     if not decision["execute"]:
                         log_agent_execution(
@@ -121,12 +120,12 @@ async def run_strategies():
 
                     exists = await execution_service.exists_by_external_id(db, execution_id)
                     if exists:
-                        print("⏭️ Idempotência: já executado nesta janela, pulando")
+                        logger.debug("Idempotência: já executado nesta janela | strategy={id}", id=s.id)
                         continue
 
                     has_pending = await execution_service.has_pending_signature(db, s.id)
                     if has_pending:
-                        print(f"⏭️ Já existe awaiting_signature para strategy {s.id}, aguardando usuário")
+                        logger.debug("Pending awaiting_signature existente | strategy={id}", id=s.id)
                         continue
 
                     # verifica se o usuário tem sessão ativa
@@ -152,7 +151,7 @@ async def run_strategies():
                                     user_public_key=s.wallet.public_key,
                                 )
                             except Exception as e:
-                                print(f"⚠️ Jupiter swap TX falhou, usando mock: {e}")
+                                logger.warning("Jupiter swap TX falhou, usando mock | strategy={id} erro={e}", id=s.id, e=e)
 
                         out_label = jupiter_service.format_out_amount(quote, s.token_out)
                         suffix = " [DEMO]" if (is_mock or serialized_tx is None) else ""
@@ -165,7 +164,7 @@ async def run_strategies():
                             serialized_tx=serialized_tx,
                             out_amount_label=out_label + suffix,
                         )
-                        print(f"🔄 Swap{suffix}: {amount_in} {s.token_in} → ~{out_label} (strategy {s.id})")
+                        logger.info("Swap{suffix}: {amount} {token_in} → ~{out} | strategy={id}", suffix=suffix, amount=amount_in, token_in=s.token_in, out=out_label, id=s.id)
                     else:
                         if active_session:
                             # sessão ativa — agente assina autonomamente
@@ -188,9 +187,9 @@ async def run_strategies():
                                     tx_hash=tx_hash,
                                     trigger_price=price,
                                 )
-                                print(f"✅ Autônomo: {amount} {s.token} enviado (strategy {s.id}) tx={tx_hash[:8]}...")
+                                logger.info("Autônomo: {amount} {token} enviado | strategy={id} tx={tx}...", amount=amount, token=s.token, id=s.id, tx=tx_hash[:8])
                             except Exception as e:
-                                print(f"⚠️ Execução autônoma falhou, criando awaiting_signature: {e}")
+                                logger.warning("Execução autônoma falhou, criando awaiting_signature | strategy={id} erro={e}", id=s.id, e=e)
                                 await execution_service.create_awaiting_signature(
                                     db=db,
                                     strategy_id=s.id,
@@ -207,7 +206,7 @@ async def run_strategies():
                                 external_id=execution_id,
                                 trigger_price=price,
                             )
-                            print(f"⏳ {s.token}: aguardando assinatura Phantom (strategy {s.id})")
+                            logger.info("Aguardando assinatura Phantom | strategy={id} token={token}", id=s.id, token=s.token)
 
                     await db.flush()
 
@@ -230,6 +229,6 @@ async def run_strategies():
 
             except Exception as e:
                 await db.rollback()
-                print("❌ Worker error:", e)
+                logger.exception("Worker error: {e}", e=e)
 
         await asyncio.sleep(5)
