@@ -281,7 +281,7 @@ const Index = () => {
     setSubmitting(true);
     try {
       await createStrategy({
-        type: "buy",
+        type: "transfer",
         drop_percent: parsed.data.drop_percent,
         amount_sol: parsed.data.amount_sol,
         destination_address: parsed.data.destination_address,
