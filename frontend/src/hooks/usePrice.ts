@@ -15,7 +15,9 @@ export function usePrice(intervalMs = 5000) {
       const p: number = overrideRef.current ?? data.price;
       setPrice(p);
       setHistory((h) => [...h.slice(-59), p]);
-    } catch {}
+    } catch {
+      return;
+    }
   };
 
   useEffect(() => {

@@ -65,10 +65,10 @@ All responses use the envelope: `{ "data": {...}, "meta": {...} }`
 
 The `strategy.type` field drives worker bifurcation:
 
-- `transfer` — worker builds `awaiting_signature` execution; user signs SOL/USDC transfer via Phantom (or agent signs autonomously if session active)
-- `swap` — worker gets Jupiter quote + swap TX; builds `awaiting_swap` execution; user signs `VersionedTransaction` via Phantom (or agent signs if session active)
+- `transfer` — worker builds `awaiting_signature` execution; user signs SOL/USDC transfer via Phantom, or the worker attempts to sign with the encrypted ephemeral key if a DB session is active.
+- `swap` — worker gets Jupiter quote + swap TX; builds an `awaiting_signature` execution; user signs `VersionedTransaction` via Phantom. Autonomous swap signing is not complete yet.
 
-> ⚠️ **Known inconsistency:** o frontend envia `type: "buy"` (não `"transfer"`). O worker cai no `else` para qualquer valor diferente de `"swap"`, então funciona — mas deveria ser padronizado para `"transfer"`. Ver `frontend/src/pages/Index.tsx` linha 284.
+> ✅ O frontend atualmente envia `type: "transfer"` para modo transfer e `type: "swap"` para swaps.
 
 ## Execution Statuses
 
@@ -89,9 +89,9 @@ Valores reais do enum `ExecutionStatus` (`app/models/enums.py`):
 
 ## Session Keys
 
-Each user generates an ephemeral keypair client-side. They sign once via Phantom creating an on-chain `SessionToken(owner, delegate, spending_limit, expiry)`. The backend stores the encrypted ephemeral private key per user. When a strategy triggers and an active session exists, the worker signs autonomously using that user's ephemeral key — no Phantom interaction needed.
+Each user generates an ephemeral keypair client-side. They sign once via Phantom creating an on-chain `SessionToken(owner, delegate, spending_limit, expiry)`. The backend stores the encrypted ephemeral private key per user. When a transfer strategy triggers and an active DB session exists, the worker attempts to sign using that user's ephemeral key.
 
-**There is no shared server keypair.** Each session key is scoped to a single user, has a spending limit, and expires automatically.
+**There is no shared server keypair.** Each session key is scoped to a single user, has a spending limit, and expires automatically. Important: the Anchor `execute_swap` instruction enforces `expiry` and `spending_limit`, but the backend does not yet call it before autonomous execution, so on-chain limit accounting is still pending integration.
 
 ### Sessions model (`app/models/session.py`)
 

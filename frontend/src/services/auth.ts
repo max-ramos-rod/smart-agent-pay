@@ -3,7 +3,20 @@
 import { api } from "./api";
 import { Buffer } from 'buffer';
 
-export const loginWithWallet = async (provider: any, publicKey: string) => {
+export type WalletAuthProvider = {
+  signMessage: (
+    message: Uint8Array,
+    encoding: "utf8",
+  ) => Promise<{ signature: Uint8Array }>;
+};
+
+type LoginResponse = {
+  access_token: string;
+  refresh_token: string;
+  wallet_id: number;
+};
+
+export const loginWithWallet = async (provider: WalletAuthProvider, publicKey: string) => {
   const challenge = await api.get("/auth/challenge", {
     params: { public_key: publicKey },
   });
@@ -15,7 +28,7 @@ export const loginWithWallet = async (provider: any, publicKey: string) => {
 
   const signature = Buffer.from(signed.signature).toString("base64");
 
-  const res = await api.post("/auth/login", {
+  const res = await api.post<LoginResponse>("/auth/login", {
     public_key: publicKey,
     signature,
     message,

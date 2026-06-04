@@ -1,7 +1,7 @@
 // services/strategy.ts — versão atualizada
 import { api } from "./api";
 
-type ApiResponse<T> = { data: T; meta: any };
+type ApiResponse<T> = { data: T; meta: unknown };
 
 export const getStrategies = async () => {
   const response = await api.get<ApiResponse<Strategy[]>>("/strategies");

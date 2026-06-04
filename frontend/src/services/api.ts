@@ -1,4 +1,4 @@
-import axios from "axios";
+import axios, { type AxiosError, type AxiosRequestConfig } from "axios";
 
 export const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL,
@@ -18,10 +18,16 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-let isRefreshing = false;
-let failedQueue: any[] = [];
+type RetriableRequestConfig = AxiosRequestConfig & { _retry?: boolean };
+type QueuedRequest = {
+  resolve: (token: string) => void;
+  reject: (error: unknown) => void;
+};
 
-const processQueue = (error: any, token: string | null = null) => {
+let isRefreshing = false;
+let failedQueue: QueuedRequest[] = [];
+
+const processQueue = (error: unknown, token: string | null = null) => {
   failedQueue.forEach((prom) => {
     if (token) {
       prom.resolve(token);
@@ -35,10 +41,14 @@ const processQueue = (error: any, token: string | null = null) => {
 
 api.interceptors.response.use(
   (response) => response,
-  async (error) => {
-    const originalRequest = error.config;
+  async (error: AxiosError) => {
+    const originalRequest = error.config as RetriableRequestConfig | undefined;
 
     if (error.response?.status !== 401) {
+      return Promise.reject(error);
+    }
+
+    if (!originalRequest) {
       return Promise.reject(error);
     }
 
@@ -53,7 +63,10 @@ api.interceptors.response.use(
       return new Promise((resolve, reject) => {
         failedQueue.push({
           resolve: (token: string) => {
-            originalRequest.headers.Authorization = `Bearer ${token}`;
+            originalRequest.headers = {
+              ...originalRequest.headers,
+              Authorization: `Bearer ${token}`,
+            };
             resolve(api(originalRequest));
           },
           reject,
@@ -82,7 +95,10 @@ api.interceptors.response.use(
 
       processQueue(null, newToken);
 
-      originalRequest.headers.Authorization = `Bearer ${newToken}`;
+      originalRequest.headers = {
+        ...originalRequest.headers,
+        Authorization: `Bearer ${newToken}`,
+      };
 
       return api(originalRequest);
     } catch (err) {

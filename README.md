@@ -1,12 +1,12 @@
 # SentinelFi
 
-Automated trading strategy execution platform for Solana. Users connect a Phantom wallet, define price-drop strategies, and an AI agent monitors the market and executes trades autonomously via Session Keys.
+Automated trading strategy execution platform for Solana. Users connect a Phantom wallet, define price-drop strategies, and an AI agent monitors the market. The current implementation supports manual Phantom signing, Session Key creation/revocation, and autonomous transfer attempts with the user's encrypted ephemeral key.
 
 ---
 
 ## Vision
 
-SentinelFi is an **Agentic Wallet** — the user defines intentions ("if SOL drops 5%, buy $50 USDC worth"), authorizes the agent once via a Session Key, and the AI executes autonomously within those limits — no Phantom signature needed on each trade.
+SentinelFi is moving toward an **Agentic Wallet** — the user defines intentions ("if SOL drops 5%, buy $50 USDC worth"), authorizes the agent once via a Session Key, and the agent executes within scoped limits. Today, the Session Key account exists on-chain and the backend can use the ephemeral key for autonomous transfers, but on-chain spending-limit validation still needs to be wired into every autonomous execution path.
 
 ---
 
@@ -21,7 +21,7 @@ Backend (FastAPI, port 8001)
   └─ AI Agent (OpenAI, optional) — gates execution decisions
 PostgreSQL 17
 Solana
-  └─ Anchor Program — SessionToken accounts (Phase 2 ✅)
+  └─ Anchor Program — SessionToken accounts (devnet, partially integrated)
 ```
 
 ---
@@ -39,9 +39,14 @@ SessionToken {
 }
 ```
 
-The backend stores the encrypted ephemeral private key per user. When a strategy triggers, the worker signs autonomously using that key — no Phantom interaction needed. The user can revoke at any time.
+The backend stores the encrypted ephemeral private key per user. When a transfer strategy triggers and a DB session is active, the worker attempts to sign using that key. The user can revoke the on-chain SessionToken and the backend session.
 
 There is **no shared server keypair**. Each session is user-specific, scoped, and expiring.
+
+Current integration boundary:
+- `create_session` and `revoke_session` are called from the frontend on devnet.
+- `execute_swap` exists in the Anchor program and validates `expiry` + `spending_limit`, but the backend does not yet call it before autonomous transfers/swaps.
+- Jupiter swaps currently produce a transaction for Phantom/manual signing; autonomous swap signing is not complete.
 
 ---
 
@@ -57,7 +62,7 @@ Defines the execution rule:
 
 ### Execution
 Record of each triggered action:
-- Status: `awaiting_signature` → `completed` / `expired` / `skipped`
+- Status: `awaiting_signature` → `success` / `failed` / `expired`
 - tx_hash (on-chain confirmation)
 - AI explanation
 - Full audit trail
@@ -65,7 +70,7 @@ Record of each triggered action:
 ### Session
 User-delegated authority for the AI agent:
 - On-chain `SessionToken` (Anchor program)
-- Spending limit enforced on-chain
+- Spending limit represented on-chain; enforcement exists in `execute_swap`, but worker integration is pending
 - Auto-expires; user can revoke
 
 ---
@@ -111,7 +116,7 @@ User-delegated authority for the AI agent:
 - [x] Frontend (React 18 + TypeScript + Vite)
 - [x] Docker stack (backend, frontend, postgres)
 
-### Phase 2 — Anchor + Session Keys ✅ **COMPLETE**
+### Phase 2 — Anchor + Session Keys 🔄 **PARTIALLY COMPLETE**
 - [x] Anchor program: `create_session` instruction
 - [x] Anchor program: `execute_swap` instruction
 - [x] Anchor program: `revoke_session` instruction
@@ -119,21 +124,25 @@ User-delegated authority for the AI agent:
 - [x] Devnet deployment (Program ID: `HwPkZA1WSussRBD8hgRojJ2bg2Upxa1wr428gBzzoATB`)
 - [x] Backend: Store encrypted ephemeral keys per user (Fernet encryption)
 - [x] Backend: Session management endpoints (`POST /sessions`, `GET /sessions`, `DELETE /sessions`)
-- [x] Backend: Worker autonomous execution (signs with ephemeral keypair when session active)
+- [x] Backend: Worker autonomous transfer attempt (signs with ephemeral keypair when session active)
 - [x] Frontend: "Authorize Agent" flow (generate keypair → sign once → store encrypted key)
 - [x] Frontend: Session status UI (active, delegate, spending limit, expiry)
 - [x] Jupiter API v6 integration (quote + swap TX construction)
 - [x] Jupiter mock fallback (for devnet testing)
 - [x] AI Agent pipeline (base filter → trend → volatility → OpenAI → heuristic fallback)
-- [x] Execution status pipeline (`awaiting_signature` → `completed`/`expired`/`skipped`)
+- [x] Execution status pipeline (`awaiting_signature` → `success`/`failed`/`expired`)
 - [x] Idempotency via `external_id` (prevents duplicate execution in same price window)
 - [x] Demo endpoint: `POST /demo/set-price` for manual testing
+- [ ] Backend calls Anchor `execute_swap` / session-limit accounting before autonomous execution
+- [ ] Autonomous Jupiter swap signing with the ephemeral delegate key
+- [ ] Validate on-chain SessionToken before each autonomous execution
 
 ### Phase 3 — Jupiter Mainnet 🔄 **IN PROGRESS**
 - [x] Mainnet RPC endpoint configuration (`SOLANA_RPC_URL` env var)
 - [x] Dual-environment support (`npm run dev:devnet` / `npm run dev:mainnet`)
 - [x] USDC mint address configurable per environment
 - [ ] VersionedTransaction validation on mainnet (end-to-end test pending)
+- [ ] Align Session Key network with swap/transfer network (devnet vs mainnet)
 - [ ] Remove `[DEMO]` suffix via environment variable
 - [ ] Add token pairs: BONK, JTO, PYTH, WIF
 

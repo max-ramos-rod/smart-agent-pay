@@ -1,6 +1,6 @@
 # Frontend - SentinelFi 🎨
 
-Interface do usuário para criação e monitoramento de estratégias.
+Interface do usuário para criação, monitoramento e assinatura de estratégias SentinelFi.
 
 ---
 
@@ -72,8 +72,10 @@ npm run dev
 
 * Criar estratégia
 * Listar estratégias
-* Executar estratégia
+* Assinar execução pendente via Phantom
 * Visualizar execuções
+* Autorizar/revogar agente via Session Key
+* Criar estratégia de transfer ou swap Jupiter
 
 ---
 
@@ -104,6 +106,16 @@ npm run dev
 
 * Nunca armazenar dados sensíveis
 * validação no frontend é apenas UX (backend valida tudo)
+
+---
+
+## Estado atual das Session Keys
+
+* `useSession.ts` cria/revoga `SessionToken` no programa Anchor em devnet.
+* A chave efêmera é gerada no browser e enviada ao backend para armazenamento criptografado.
+* `usePhantom.ts` usa RPC/mint configuráveis e por padrão mainnet.
+* Swaps Jupiter ainda são assinados manualmente pelo usuário quando a execução fica pendente.
+* Execução autônoma completa com contabilização de limite on-chain ainda depende da integração backend/contrato.
 
 ---
 

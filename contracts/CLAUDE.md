@@ -4,6 +4,8 @@ Anchor program on Solana that implements the Session Keys architecture for Senti
 
 **Program ID (devnet):** `HwPkZA1WSussRBD8hgRojJ2bg2Upxa1wr428gBzzoATB`
 
+Current integration note: `create_session` and `revoke_session` are called by the frontend. `execute_swap` enforces `expiry` and `spending_limit` in the program, but the backend worker does not yet call it before autonomous transfer/swap execution, so on-chain spending-limit accounting is still pending integration.
+
 ## Toolchain
 
 | Tool | Version |

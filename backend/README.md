@@ -1,6 +1,6 @@
 # Backend - SentinelFi ⚙️
 
-API responsável por regras de negócio, persistência e execução das estratégias.
+API responsável por regras de negócio, persistência, autenticação por carteira, sessões do agente e execução das estratégias.
 
 ---
 
@@ -58,6 +58,11 @@ Router → Service → Repository → DB
 ### Execution
 
 * log de execução das estratégias
+
+### Session
+
+* armazena delegate pubkey e chave efêmera criptografada
+* representa a autorização do agente criada on-chain via Anchor
 
 ---
 
@@ -128,6 +133,22 @@ GET  /executions
 POST /executions
 ```
 
+### Sessions
+
+```
+POST   /sessions
+GET    /sessions
+DELETE /sessions
+```
+
+### Demo
+
+```
+POST   /demo/set-price
+DELETE /demo/set-price
+GET    /demo/price
+```
+
 ---
 
 ## 📦 Padrão de resposta
@@ -159,9 +180,20 @@ POST /executions
 
 ---
 
+## Estado atual das Session Keys
+
+* O frontend cria/revoga `SessionToken` no programa Anchor em devnet.
+* O backend guarda a chave efêmera criptografada por usuário.
+* O worker pode tentar transferências autônomas com essa chave quando há sessão ativa.
+* A validação on-chain de limite (`execute_swap` / `amount_spent`) ainda não está integrada ao worker.
+* Swaps Jupiter ainda seguem fluxo de assinatura manual via Phantom.
+
+---
+
 ## 🚀 Melhorias futuras
 
 * Retry de execução
-* Logs estruturados
 * Monitoramento
 * Sistema de filas (Redis/Celery) para múltiplos workers
+* Redis para challenges de auth com TTL
+* Integração on-chain de limite de gasto antes de execução autônoma

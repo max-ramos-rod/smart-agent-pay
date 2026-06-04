@@ -85,7 +85,7 @@ public/
 
 | function | use |
 |----------|-----|
-| `createSession(spendingLimit, expiryDays)` | Generates ephemeral keypair, user signs once via Phantom to create on-chain `SessionToken`, sends ephemeral private key to backend |
+| `createSession(spendingLimit, expiryDays)` | Generates ephemeral keypair, user signs once via Phantom to create on-chain devnet `SessionToken`, sends ephemeral private key to backend |
 | `revokeSession()` | User signs `revoke_session` instruction via Phantom, calls `DELETE /sessions` |
 
 `signAndSendSwap` deserializes the base64 transaction from the backend and sends it directly via `provider.signAndSendTransaction()` — no re-building needed.
@@ -103,29 +103,25 @@ User clicks "Authorize Agent"
       (SessionToken.owner = user wallet, SessionToken.delegate = ephemeral pubkey)
   → ephemeral_private_key sent to POST /sessions
   → backend stores encrypted key per user
-  → worker now executes autonomously within spending_limit + expiry
+  → worker can attempt autonomous transfers with the ephemeral key
 ```
 
-The user never needs to sign again until the session expires or they revoke it.
+Current boundary: Session creation/revocation is on devnet, while `usePhantom.ts` defaults to mainnet RPC/mints for transfers and swaps. The user still signs Jupiter swaps manually; fully autonomous swap signing and on-chain spending-limit accounting are backend/contract integration work.
 
 ## Strategy Form (Index.tsx)
 
 Two modes toggled by `strategyMode` state:
 
-### Transfer mode (`type: "buy"` no código atual)
-
-> ⚠️ O frontend envia `type: "buy"` (linha 284 de Index.tsx), não `"transfer"`. O worker trata qualquer valor diferente de `"swap"` como transfer — funciona, mas é inconsistente. Fix pendente: padronizar para `"transfer"`.
-
-### Transfer mode (`type: "transfer"` — valor esperado pelo backend)
+### Transfer mode (`type: "transfer"`)
 - Fields: drop %, SOL amount, destination address, reference price, cooldown, execution mode, token (SOL/USDC)
 - Without session: user signs each transfer via Phantom
-- With session active: worker signs autonomously using ephemeral key
+- With session active: worker attempts to sign autonomously using the ephemeral key
 
 ### Swap mode (`type: "swap"`)
 - Fields: drop %, token in/out (SOL ↔ USDC), amount, slippage bps, reference price
 - Worker calls Jupiter API for quote + VersionedTransaction
 - Without session: user signs the Jupiter TX with Phantom
-- With session active: worker signs autonomously
+- With session active: autonomous swap signing is not complete yet
 
 ## Execution Signing Flow (`handleSignPhantom` in Index.tsx)
 

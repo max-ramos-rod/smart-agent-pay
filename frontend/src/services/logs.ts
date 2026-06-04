@@ -2,7 +2,7 @@ import { api } from "./api";
 
 type ApiResponse<T> = {
   data: T;
-  meta: any;
+  meta: unknown;
 };
 
 export const getExecutions = async () => {

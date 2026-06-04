@@ -21,6 +21,7 @@ import { getExecutions } from "@/services/logs";
 import { getBalances } from "@/services/wallets";
 import { getSession } from "@/services/sessions";
 import { useAuth } from "@/hooks/useAuth";
+import type { WalletAuthProvider } from "@/services/auth";
 
 type Strategy = {
   id: string;
@@ -60,6 +61,20 @@ type SessionInfo = {
   expiry: string;
   session_token_address: string;
 } | null;
+
+const getErrorMessage = (error: unknown) => {
+  if (error instanceof Error) return error.message;
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "response" in error
+  ) {
+    const response = (error as { response?: { data?: { detail?: { msg?: string }[] } } }).response;
+    const validationMessage = response?.data?.detail?.[0]?.msg;
+    if (validationMessage) return validationMessage;
+  }
+  return "Erro inesperado";
+};
 
 const Index = () => {
   const { address, connect, disconnect, connecting, sendSol, sendUsdc, signAndSendSwap } = usePhantom();
@@ -131,7 +146,7 @@ const Index = () => {
 
   // --- init: auto-login e primeiro load ---
   useEffect(() => {
-    const provider = (window as any).solana;
+    const provider = window.solana as WalletAuthProvider | undefined;
     if (!address || !provider) return;
 
     const init = async () => {
@@ -158,7 +173,7 @@ const Index = () => {
     };
 
     init();
-  }, [address]);
+  }, [address, loginWithWallet, refresh]);
 
   // --- CORRIGIDO: um único intervalo de polling (não dois) ---
   // Execuções a 3s, mas chamando refresh completo para evitar race condition
@@ -184,8 +199,8 @@ const Index = () => {
       toast.success("🔑 Agente autorizado", {
         description: `Limite: ${spendingLimit} USDC · ${expiryDays} dias`,
       });
-    } catch (err: any) {
-      toast.error("Erro ao autorizar agente", { description: err.message });
+    } catch (err: unknown) {
+      toast.error("Erro ao autorizar agente", { description: getErrorMessage(err) });
     }
   };
 
@@ -194,8 +209,8 @@ const Index = () => {
       await revokeSession();
       setSessionInfo(null);
       toast.success("🔒 Sessão revogada — agente em modo manual");
-    } catch (err: any) {
-      toast.error("Erro ao revogar sessão", { description: err.message });
+    } catch (err: unknown) {
+      toast.error("Erro ao revogar sessão", { description: getErrorMessage(err) });
     }
   };
 
@@ -232,8 +247,8 @@ const Index = () => {
       dismissedIds.current.add(signingExecution.id);
       setSigningExecution(null);
       await refresh();
-    } catch (err: any) {
-      toast.error("Erro ao assinar", { description: err.message });
+    } catch (err: unknown) {
+      toast.error("Erro ao assinar", { description: getErrorMessage(err) });
     } finally {
       setSigning(false);
     }
@@ -268,8 +283,8 @@ const Index = () => {
           description: `Swap ${amtVal} ${tokenIn} → ${tokenOut} se SOL cair ${dropVal}%`,
         });
         await refresh();
-      } catch (err: any) {
-        toast.error("Erro ao salvar", { description: err.response?.data?.detail?.[0]?.msg || err.message });
+      } catch (err: unknown) {
+        toast.error("Erro ao salvar", { description: getErrorMessage(err) });
       } finally {
         setSubmitting(false);
       }
@@ -296,8 +311,8 @@ const Index = () => {
       });
       setDestination("");
       await refresh();
-    } catch (err: any) {
-      toast.error("Erro ao salvar", { description: err.response?.data?.detail?.[0]?.msg || err.message });
+    } catch (err: unknown) {
+      toast.error("Erro ao salvar", { description: getErrorMessage(err) });
     } finally {
       setSubmitting(false);
     }
