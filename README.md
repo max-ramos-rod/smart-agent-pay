@@ -1,12 +1,12 @@
 # SentinelFi
 
-Automated trading strategy execution platform for Solana. Users connect a Phantom wallet, define price-drop strategies, and an AI agent monitors the market and executes trades autonomously via Session Keys — no manual signing required after the initial authorization.
+Automated trading strategy execution platform for Solana. Users connect a Phantom wallet, define price-drop strategies, and an AI agent monitors the market and executes trades autonomously via Session Keys.
 
 ---
 
 ## Vision
 
-SentinelFi is an **Agentic Wallet** — the user defines intentions ("if SOL drops 5%, buy $50 USDC worth"), authorizes the agent once via a Session Key, and the AI executes autonomously within those limits. The user stays in control: spending limits and expiry are enforced on-chain; revocation is one click.
+SentinelFi is an **Agentic Wallet** — the user defines intentions ("if SOL drops 5%, buy $50 USDC worth"), authorizes the agent once via a Session Key, and the AI executes autonomously within those limits — no Phantom signature needed on each trade.
 
 ---
 
@@ -21,7 +21,7 @@ Backend (FastAPI, port 8001)
   └─ AI Agent (OpenAI, optional) — gates execution decisions
 PostgreSQL 17
 Solana
-  └─ Anchor Program — SessionToken accounts (Phase 2)
+  └─ Anchor Program — SessionToken accounts (Phase 2 ✅)
 ```
 
 ---
@@ -87,7 +87,7 @@ User-delegated authority for the AI agent:
 
 ### Blockchain
 - Solana (devnet → mainnet)
-- Anchor/Rust (Session Keys program — Phase 2)
+- Anchor/Rust (Session Keys program — Phase 2 ✅)
 - Jupiter API v6 (swaps)
 
 ---
@@ -102,24 +102,42 @@ User-delegated authority for the AI agent:
 
 ## Roadmap
 
-### Phase 2 — Anchor + Session Keys (current sprint)
-- [ ] `anchor init sentinelfi` — Anchor program in WSL
-- [ ] `SessionToken` account: `owner`, `delegate`, `spending_limit`, `expiry`
-- [ ] `create_session` instruction — user signs once
-- [ ] `execute_swap` instruction — agent executes within limit
-- [ ] `revoke_session` instruction — user revokes at any time
-- [ ] Devnet end-to-end test
-- [ ] Backend: store encrypted ephemeral keys per user, use in worker
-- [ ] Frontend: "Authorize Agent" button + session status UI
+### Phase 1 — Foundation ✅ **COMPLETE**
+- [x] FastAPI + SQLAlchemy 2 + PostgreSQL 17
+- [x] Phantom wallet authentication (ed25519 challenge + JWT)
+- [x] Strategy CRUD (create, list, update, delete)
+- [x] Execution tracking with status pipeline
+- [x] Worker loop (polls CoinGecko every 5s)
+- [x] Frontend (React 18 + TypeScript + Vite)
+- [x] Docker stack (backend, frontend, postgres)
 
-### Phase 3 — Jupiter Mainnet
-- [ ] Mainnet RPC + VersionedTransaction validation
-- [ ] Remove `[DEMO]` suffix via env var
+### Phase 2 — Anchor + Session Keys ✅ **COMPLETE**
+- [x] Anchor program: `create_session` instruction
+- [x] Anchor program: `execute_swap` instruction
+- [x] Anchor program: `revoke_session` instruction
+- [x] SessionToken PDA with `owner`, `delegate`, `spending_limit`, `expiry`, `amount_spent`, `bump`
+- [x] Devnet deployment (Program ID: `HwPkZA1WSussRBD8hgRojJ2bg2Upxa1wr428gBzzoATB`)
+- [x] Backend: Store encrypted ephemeral keys per user (Fernet encryption)
+- [x] Backend: Session management endpoints (`POST /sessions`, `GET /sessions`, `DELETE /sessions`)
+- [x] Backend: Worker autonomous execution (signs with ephemeral keypair when session active)
+- [x] Frontend: "Authorize Agent" flow (generate keypair → sign once → store encrypted key)
+- [x] Frontend: Session status UI (active, delegate, spending limit, expiry)
+- [x] Jupiter API v6 integration (quote + swap TX construction)
+- [x] Jupiter mock fallback (for devnet testing)
+- [x] AI Agent pipeline (base filter → trend → volatility → OpenAI → heuristic fallback)
+- [x] Execution status pipeline (`awaiting_signature` → `completed`/`expired`/`skipped`)
+- [x] Idempotency via `external_id` (prevents duplicate execution in same price window)
+- [x] Demo endpoint: `POST /demo/set-price` for manual testing
+
+### Phase 3 — Jupiter Mainnet ⏳ **NOT STARTED**
+- [ ] Mainnet RPC endpoint configuration
+- [ ] VersionedTransaction validation on mainnet
+- [ ] Remove `[DEMO]` suffix via environment variable
 - [ ] Add token pairs: BONK, JTO, PYTH, WIF
 
-### Phase 3.5 — x402 (Autonomous Agent Payments)
+### Phase 3.5 — x402 (Autonomous Agent Payments) ⏳ **NOT STARTED**
 
-The [x402 protocol](https://x402.org) standardizes HTTP `402 Payment Required` for machine-to-machine USDC payments. The agent pays autonomously using the session's ephemeral key — no human intervention.
+The [x402 protocol](https://x402.org) standardizes HTTP `402 Payment Required` for machine-to-machine USDC payments. The agent pays autonomously using the session's ephemeral key — no human intervention needed.
 
 - [ ] Agent pays for premium price data (Pyth) per query via x402
 - [ ] AI inference cost debited from user session via x402 (not server's OpenAI bill)
@@ -128,12 +146,12 @@ The [x402 protocol](https://x402.org) standardizes HTTP `402 Payment Required` f
 
 > Requires Phase 2 (Session Keys) + Phase 3 (mainnet). The `spending_limit` of a session covers both swaps and x402 data costs — user authorizes a total budget and the agent allocates it.
 
-### Phase 4 — Multi-user at Scale
+### Phase 4 — Multi-user at Scale ⏳ **NOT STARTED**
 - [ ] Worker validates on-chain session before each execution
 - [ ] Session expiry management and renewal UX
 - [ ] Redis-backed locking for multi-worker Uvicorn
 
-### Phase 5 — Product & Intelligence
+### Phase 5 — Product & Intelligence ⏳ **NOT STARTED**
 - [ ] Pix on-ramp — user deposits BRL via Pix, receives USDC on-chain (via gateway: Stripe/MoonPay/Transak)
 - [ ] Persistent price history — table `price_history` in DB; worker persists every tick; replaces in-memory deque (currently maxlen=20, lost on restart)
 - [ ] Trading indicators — RSI, MA20/MA50, volume in `metrics.py`; strategy `drop_percent` becomes entry trigger, AI decides based on indicators
